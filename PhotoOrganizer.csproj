@@ -15,4 +15,11 @@
     <PackageReference Include="System.Management" Version="10.0.5" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

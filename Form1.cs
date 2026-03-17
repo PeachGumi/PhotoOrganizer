@@ -30,11 +30,14 @@ public partial class Form1 : Form
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "PhotoOrganizer",
         "state.json");
-
-    private static readonly HashSet<string> RawExt = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".arw", ".cr2", ".cr3", ".nef", ".dng", ".raf", ".rw2", ".orf"
-    };
+    private readonly string _configPath = Path.Combine(
+        AppContext.BaseDirectory,
+        "config.json");
+    private HashSet<string> _rawExt = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly string[] DefaultRawExtensions =
+    [
+        ".arw", ".cr2", ".cr3", ".nef", ".dng", ".raf", ".rw2", ".orf", ".pef"
+    ];
 
     public Form1()
     {
@@ -43,6 +46,7 @@ public partial class Form1 : Form
         Width = 860;
         Height = 620;
         BuildUi();
+        LoadConfig();
         LoadState();
 
         _trayIcon = new NotifyIcon
@@ -209,30 +213,50 @@ public partial class Form1 : Form
             SetProgress($"処理中... 0/{filesToProcess.Count}");
             var result = await Task.Run(() =>
             {
-                var raw = 0; var jpg = 0; var mp4 = 0; var skip = 0; var processed = 0;
+                var raw = 0; var jpg = 0; var mp4 = 0; var skipUnsupported = 0; var skipDuplicate = 0; var failed = 0; var processed = 0;
+                var failedFiles = new List<string>();
                 foreach (var src in filesToProcess)
                 {
-                    var ext = Path.GetExtension(src);
-                    string? targetDir = null;
-                    if (RawExt.Contains(ext)) { targetDir = "RAW"; raw++; }
-                    else if (ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)) { targetDir = "JPG"; jpg++; }
-                    else if (ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase) || ext.Equals(".mov", StringComparison.OrdinalIgnoreCase)) { targetDir = "MP4"; mp4++; }
-                    else { skip++; }
-                    if (targetDir is not null)
+                    var kind = GetMediaKind(src);
+                    if (kind == "RAW") raw++;
+                    else if (kind == "JPG") jpg++;
+                    else if (kind == "MP4") mp4++;
+
+                    var status = ProcessOneFile(src, basePath, out _);
+                    if (status == FileProcessStatus.SkippedUnsupported) skipUnsupported++;
+                    else if (status == FileProcessStatus.SkippedDuplicate) skipDuplicate++;
+                    else if (status == FileProcessStatus.Failed)
                     {
-                        var dst = Path.Combine(basePath, targetDir, Path.GetFileName(src));
-                        File.Copy(src, dst, true);
+                        failed++;
+                        failedFiles.Add(src);
                     }
+
                     processed++;
                     if (processed % 25 == 0 || processed == filesToProcess.Count)
                     {
                         SetProgress($"処理中... {processed}/{filesToProcess.Count}");
                     }
                 }
-                return (raw, jpg, mp4, skip);
+
+                if (failedFiles.Count > 0)
+                {
+                    Thread.Sleep(800);
+                    var retryFailed = new List<string>();
+                    foreach (var src in failedFiles)
+                    {
+                        var retryStatus = ProcessOneFile(src, basePath, out _);
+                        if (retryStatus == FileProcessStatus.Failed)
+                        {
+                            retryFailed.Add(src);
+                        }
+                    }
+                    failed = retryFailed.Count;
+                }
+
+                return (raw, jpg, mp4, skipUnsupported, skipDuplicate, failed);
             });
 
-            AppendLog($"完了: RAW:{result.raw} / JPG:{result.jpg} / MP4:{result.mp4} / スキップ:{result.skip}");
+            AppendLog($"完了: RAW:{result.raw} / JPG:{result.jpg} / MP4:{result.mp4} / 重複スキップ:{result.skipDuplicate} / 非対応スキップ:{result.skipUnsupported} / 失敗:{result.failed}");
             AppendLog($"保存先: {basePath}");
             SaveState();
         }
@@ -287,7 +311,7 @@ public partial class Form1 : Form
         }
     }
 
-    private static List<string> EnumerateMediaFiles(string root)
+    private List<string> EnumerateMediaFiles(string root)
     {
         var list = new List<string>();
         var dirs = new Stack<string>();
@@ -317,7 +341,7 @@ public partial class Form1 : Form
                 var name = Path.GetFileName(file);
                 if (name.StartsWith(".")) continue;
                 var ext = Path.GetExtension(file);
-                if (RawExt.Contains(ext) || ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase) || ext.Equals(".mov", StringComparison.OrdinalIgnoreCase))
+                if (GetMediaKind(file) is not null)
                 {
                     list.Add(file);
                 }
@@ -326,15 +350,15 @@ public partial class Form1 : Form
         return list;
     }
 
-    private static (int raw, int jpg, int mp4) CountByType(IEnumerable<string> files)
+    private (int raw, int jpg, int mp4) CountByType(IEnumerable<string> files)
     {
         var raw = 0; var jpg = 0; var mp4 = 0;
         foreach (var f in files)
         {
-            var ext = Path.GetExtension(f);
-            if (RawExt.Contains(ext)) raw++;
-            else if (ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)) jpg++;
-            else if (ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase) || ext.Equals(".mov", StringComparison.OrdinalIgnoreCase)) mp4++;
+            var kind = GetMediaKind(f);
+            if (kind == "RAW") raw++;
+            else if (kind == "JPG") jpg++;
+            else if (kind == "MP4") mp4++;
         }
         return (raw, jpg, mp4);
     }
@@ -369,6 +393,59 @@ public partial class Form1 : Form
     {
         foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
         return name;
+    }
+
+    private string? GetMediaKind(string path)
+    {
+        var ext = Path.GetExtension(path);
+        if (_rawExt.Contains(ext)) return "RAW";
+        if (ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)) return "JPG";
+        if (ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase) || ext.Equals(".mov", StringComparison.OrdinalIgnoreCase)) return "MP4";
+        return null;
+    }
+
+    private FileProcessStatus ProcessOneFile(string src, string basePath, out string? error)
+    {
+        error = null;
+        var kind = GetMediaKind(src);
+        if (kind is null) return FileProcessStatus.SkippedUnsupported;
+
+        var dst = Path.Combine(basePath, kind, Path.GetFileName(src));
+        try
+        {
+            var srcInfo = new FileInfo(src);
+            if (File.Exists(dst))
+            {
+                var dstInfo = new FileInfo(dst);
+                if (IsSameByTimeAndSize(srcInfo, dstInfo))
+                {
+                    return FileProcessStatus.SkippedDuplicate;
+                }
+            }
+
+            File.Copy(src, dst, true);
+            File.SetLastWriteTimeUtc(dst, srcInfo.LastWriteTimeUtc);
+            var copiedInfo = new FileInfo(dst);
+            if (!IsSameByTimeAndSize(srcInfo, copiedInfo))
+            {
+                error = "整合性チェック失敗";
+                return FileProcessStatus.Failed;
+            }
+
+            return FileProcessStatus.Copied;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return FileProcessStatus.Failed;
+        }
+    }
+
+    private static bool IsSameByTimeAndSize(FileInfo src, FileInfo dst)
+    {
+        if (src.Length != dst.Length) return false;
+        var diff = Math.Abs((src.LastWriteTimeUtc - dst.LastWriteTimeUtc).TotalSeconds);
+        return diff <= 2;
     }
 
     private void SetProgress(string text)
@@ -463,6 +540,48 @@ public partial class Form1 : Form
         }
     }
 
+    private void LoadConfig()
+    {
+        _rawExt = new HashSet<string>(DefaultRawExtensions, StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (!File.Exists(_configPath))
+            {
+                return;
+            }
+
+            var json = File.ReadAllText(_configPath);
+            var config = JsonSerializer.Deserialize<AppConfig>(json);
+            if (config?.RawExtensions is null || config.RawExtensions.Count == 0)
+            {
+                return;
+            }
+
+            _rawExt = new HashSet<string>(
+                config.RawExtensions
+                    .Select(NormalizeExtension)
+                    .Where(e => !string.IsNullOrWhiteSpace(e)),
+                StringComparer.OrdinalIgnoreCase);
+            if (_rawExt.Count == 0)
+            {
+                _rawExt = new HashSet<string>(DefaultRawExtensions, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"設定ファイル読み込み失敗: {ex.Message}");
+            _rawExt = new HashSet<string>(DefaultRawExtensions, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static string NormalizeExtension(string ext)
+    {
+        if (string.IsNullOrWhiteSpace(ext)) return "";
+        var value = ext.Trim();
+        if (!value.StartsWith(".")) value = $".{value}";
+        return value.ToLowerInvariant();
+    }
+
     private void LoadState()
     {
         try
@@ -552,5 +671,18 @@ public partial class Form1 : Form
     {
         public string DestinationPath { get; set; } = "";
         public string SelectedSdPath { get; set; } = "";
+    }
+
+    private sealed class AppConfig
+    {
+        public List<string> RawExtensions { get; set; } = [];
+    }
+
+    private enum FileProcessStatus
+    {
+        Copied,
+        SkippedUnsupported,
+        SkippedDuplicate,
+        Failed
     }
 }
