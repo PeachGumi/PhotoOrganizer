@@ -9,10 +9,12 @@ public partial class Form1 : Form
 {
     private readonly NotifyIcon _trayIcon;
     private readonly ManagementEventWatcher? _insertWatcher;
+    private readonly System.Windows.Forms.Timer _drivePollTimer;
     private TextBox _destinationText = null!;
     private TextBox _eventNameText = null!;
     private TextBox _selectedSdText = null!;
     private TextBox _logText = null!;
+    private Panel _mainPanel = null!;
     private Label _countLabel = null!;
     private Label _progressLabel = null!;
     private Button _selectSdButton = null!;
@@ -21,6 +23,9 @@ public partial class Form1 : Form
     private List<string> _scannedFiles = [];
     private bool _isProcessing;
     private bool _allowClose;
+    private bool _isPollingDrives;
+    private HashSet<string> _knownCandidateDrives = new(StringComparer.OrdinalIgnoreCase);
+    private int _logTop;
     private readonly string _statePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "PhotoOrganizer",
@@ -34,7 +39,7 @@ public partial class Form1 : Form
     public Form1()
     {
         InitializeComponent();
-        Text = "Photo Organizer Native";
+        Text = "Photo Organizer";
         Width = 860;
         Height = 620;
         BuildUi();
@@ -43,11 +48,14 @@ public partial class Form1 : Form
         _trayIcon = new NotifyIcon
         {
             Icon = SystemIcons.Application,
-            Text = "Photo Organizer Native",
+            Text = "Photo Organizer",
             Visible = true,
             ContextMenuStrip = BuildTrayMenu()
         };
         _trayIcon.DoubleClick += (_, _) => ShowFromTray();
+        _drivePollTimer = new System.Windows.Forms.Timer { Interval = 3000 };
+        _drivePollTimer.Tick += async (_, _) => await PollForInsertedDriveAsync();
+        _drivePollTimer.Start();
 
         try
         {
@@ -80,55 +88,57 @@ public partial class Form1 : Form
 
     private void BuildUi()
     {
-        var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12) };
-        Controls.Add(panel);
+        _mainPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12) };
+        Controls.Add(_mainPanel);
 
         var y = 12;
-        panel.Controls.Add(MakeLabel("保存先パス", 12, y)); y += 22;
+        _mainPanel.Controls.Add(MakeLabel("保存先パス", 12, y)); y += 22;
         _destinationText = MakeTextBox(12, y, 800);
         _destinationText.Text = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
         _destinationText.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         _destinationText.TextChanged += (_, _) => SaveState();
-        panel.Controls.Add(_destinationText); y += 34;
+        _mainPanel.Controls.Add(_destinationText); y += 34;
 
-        panel.Controls.Add(MakeLabel("イベント名", 12, y)); y += 22;
+        _mainPanel.Controls.Add(MakeLabel("イベント名", 12, y)); y += 22;
         _eventNameText = MakeTextBox(12, y, 800);
         _eventNameText.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        _eventNameText.TextChanged += (_, _) => SaveState();
-        panel.Controls.Add(_eventNameText); y += 34;
+        _mainPanel.Controls.Add(_eventNameText); y += 34;
 
-        panel.Controls.Add(MakeLabel("選択中のSDカード", 12, y)); y += 22;
+        _mainPanel.Controls.Add(MakeLabel("選択中のSDカード", 12, y)); y += 22;
         _selectedSdText = MakeTextBox(12, y, 800);
         _selectedSdText.ReadOnly = true;
         _selectedSdText.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        panel.Controls.Add(_selectedSdText); y += 36;
+        _mainPanel.Controls.Add(_selectedSdText); y += 36;
 
         _selectSdButton = new Button { Left = 12, Top = y, Width = 130, Height = 32, Text = "SDカード選択" };
         _selectSdButton.Click += async (_, _) => await SelectSdAndScanAsync();
-        panel.Controls.Add(_selectSdButton);
+        _mainPanel.Controls.Add(_selectSdButton);
 
         _startButton = new Button { Left = 156, Top = y, Width = 120, Height = 32, Text = "処理開始" };
         _startButton.Click += async (_, _) => await StartProcessAsync();
-        panel.Controls.Add(_startButton);
+        _mainPanel.Controls.Add(_startButton);
         y += 42;
 
         _countLabel = MakeLabel("RAW:0 / JPG:0 / MP4:0", 12, y);
-        panel.Controls.Add(_countLabel); y += 30;
+        _mainPanel.Controls.Add(_countLabel); y += 30;
         _progressLabel = MakeLabel("待機中", 12, y);
-        panel.Controls.Add(_progressLabel); y += 30;
+        _mainPanel.Controls.Add(_progressLabel); y += 30;
+        _logTop = y;
 
         _logText = new TextBox
         {
             Left = 12,
-            Top = y,
+            Top = _logTop,
             Width = 800,
-            Height = 430,
+            Height = 200,
             Multiline = true,
             ScrollBars = ScrollBars.Vertical,
             ReadOnly = true
         };
         _logText.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        panel.Controls.Add(_logText);
+        _mainPanel.Controls.Add(_logText);
+        _mainPanel.Resize += (_, _) => AdjustLogArea();
+        AdjustLogArea();
     }
 
     private async Task<bool> SelectSdAndScanAsync(string? forcedRoot = null, bool autoDetected = false)
@@ -242,7 +252,11 @@ public partial class Form1 : Form
     private void OnVolumeInserted(object sender, EventArrivedEventArgs e)
     {
         var drive = e.NewEvent.Properties["DriveName"]?.Value?.ToString();
-        if (string.IsNullOrWhiteSpace(drive)) return;
+        if (string.IsNullOrWhiteSpace(drive))
+        {
+            BeginInvoke(new Action(() => _ = PollForInsertedDriveAsync()));
+            return;
+        }
         if (!drive.EndsWith("\\")) drive += "\\";
         BeginInvoke(new Action(() => _ = HandleVolumeInsertedAsync(drive)));
     }
@@ -251,15 +265,17 @@ public partial class Form1 : Form
     {
         try
         {
-            if (!IsCandidateSdDrive(drive))
+            var ready = false;
+            for (var i = 0; i < 5; i++)
             {
-                return;
+                if (IsCandidateSdDrive(drive))
+                {
+                    ready = true;
+                    break;
+                }
+                await Task.Delay(1000);
             }
-
-            if (_selectedSdText.Text.Equals(drive, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
+            if (!ready) return;
 
             AppendLog($"SDカード検出: {drive}");
             var selected = await SelectSdAndScanAsync(drive, autoDetected: true);
@@ -385,7 +401,13 @@ public partial class Form1 : Form
         {
             var normalized = driveRoot.EndsWith("\\") ? driveRoot : $"{driveRoot}\\";
             var info = new DriveInfo(normalized);
-            return info.DriveType == DriveType.Removable && info.IsReady;
+            if (!info.IsReady) return false;
+            if (info.DriveType is DriveType.CDRom or DriveType.Network) return false;
+            var systemRoot = Path.GetPathRoot(Environment.SystemDirectory);
+            if (!string.IsNullOrWhiteSpace(systemRoot) && normalized.Equals(systemRoot, StringComparison.OrdinalIgnoreCase)) return false;
+            if (info.DriveType == DriveType.Removable) return true;
+            return System.IO.Directory.Exists(Path.Combine(normalized, "DCIM")) ||
+                   System.IO.Directory.Exists(Path.Combine(normalized, "PRIVATE"));
         }
         catch
         {
@@ -410,8 +432,34 @@ public partial class Form1 : Form
         {
             if (await SelectSdAndScanAsync(drive, autoDetected: true))
             {
+                _knownCandidateDrives = [.. candidates];
                 return;
             }
+        }
+        _knownCandidateDrives = [.. candidates];
+    }
+
+    private async Task PollForInsertedDriveAsync()
+    {
+        if (_isPollingDrives) return;
+        _isPollingDrives = true;
+        try
+        {
+            var current = DriveInfo.GetDrives()
+                .Where(d => IsCandidateSdDrive(d.RootDirectory.FullName))
+                .Select(d => d.RootDirectory.FullName)
+                .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var inserted = current.Where(d => !_knownCandidateDrives.Contains(d)).ToList();
+            _knownCandidateDrives = [.. current];
+            foreach (var drive in inserted)
+            {
+                await HandleVolumeInsertedAsync(drive);
+            }
+        }
+        finally
+        {
+            _isPollingDrives = false;
         }
     }
 
@@ -424,7 +472,6 @@ public partial class Form1 : Form
             var state = JsonSerializer.Deserialize<AppState>(json);
             if (state is null) return;
             if (!string.IsNullOrWhiteSpace(state.DestinationPath)) _destinationText.Text = state.DestinationPath;
-            if (!string.IsNullOrWhiteSpace(state.EventName)) _eventNameText.Text = state.EventName;
             if (!string.IsNullOrWhiteSpace(state.SelectedSdPath)) _selectedSdText.Text = state.SelectedSdPath;
         }
         catch (Exception ex)
@@ -446,7 +493,6 @@ public partial class Form1 : Form
             var state = new AppState
             {
                 DestinationPath = _destinationText.Text.Trim(),
-                EventName = _eventNameText.Text.Trim(),
                 SelectedSdPath = _selectedSdText.Text.Trim()
             };
             File.WriteAllText(_statePath, JsonSerializer.Serialize(state));
@@ -471,6 +517,13 @@ public partial class Form1 : Form
         Activate();
     }
 
+    private void AdjustLogArea()
+    {
+        if (_mainPanel is null || _logText is null) return;
+        var available = _mainPanel.ClientSize.Height - _logTop - 12;
+        _logText.Height = Math.Max(80, available);
+    }
+
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
         if (!_allowClose)
@@ -482,6 +535,8 @@ public partial class Form1 : Form
 
         _insertWatcher?.Stop();
         _insertWatcher?.Dispose();
+        _drivePollTimer.Stop();
+        _drivePollTimer.Dispose();
         SaveState();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
@@ -496,7 +551,6 @@ public partial class Form1 : Form
     private sealed class AppState
     {
         public string DestinationPath { get; set; } = "";
-        public string EventName { get; set; } = "";
         public string SelectedSdPath { get; set; } = "";
     }
 }
