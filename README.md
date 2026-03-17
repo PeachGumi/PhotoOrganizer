@@ -107,6 +107,15 @@ config.json
 4. 「処理開始」
 5. 完了ログを確認
 
+## インストール方法（利用者向け）
+
+1. GitHub Releases から `PhotoOrganizer-win-x64.zip` をダウンロード
+2. 任意フォルダに展開
+3. `PhotoOrganizer.exe` と同じフォルダにある `config.json` を必要に応じて編集
+4. `PhotoOrganizer.exe` を実行
+
+> 初回起動時にWindows Defenderの確認が出た場合は「詳細情報」→「実行」を選択してください。
+
 ## ビルド/公開
 
 ### ビルド
