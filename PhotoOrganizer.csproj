@@ -10,6 +10,11 @@
     <RootNamespace>PhotoOrganizer</RootNamespace>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>None</DebugType>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="MetadataExtractor" Version="2.9.0" />
     <PackageReference Include="System.Management" Version="10.0.5" />

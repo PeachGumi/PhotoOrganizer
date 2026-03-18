@@ -1,5 +1,6 @@
 using MetadataExtractor;
 using MetadataExtractor.Formats.Exif;
+using Microsoft.Win32;
 using System.Management;
 using System.Text.Json;
 
@@ -19,6 +20,8 @@ public partial class Form1 : Form
     private Label _progressLabel = null!;
     private Button _selectSdButton = null!;
     private Button _startButton = null!;
+    private CheckBox _autoStartCheck = null!;
+    private CheckBox _startInBackgroundCheck = null!;
 
     private List<string> _scannedFiles = [];
     private bool _isProcessing;
@@ -38,6 +41,8 @@ public partial class Form1 : Form
     [
         ".arw", ".cr2", ".cr3", ".nef", ".dng", ".raf", ".rw2", ".orf", ".pef"
     ];
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string RunValueName = "PhotoOrganizer";
 
     public Form1()
     {
@@ -73,7 +78,10 @@ public partial class Form1 : Form
             AppendLog($"SD監視開始失敗: {ex.Message}");
         }
 
-        Load += (_, _) => HideToTray();
+        Load += (_, _) =>
+        {
+            if (_startInBackgroundCheck.Checked) HideToTray();
+        };
         Shown += async (_, _) => await InitializeSdSelectionAsync();
         FormClosing += OnFormClosing;
     }
@@ -123,6 +131,21 @@ public partial class Form1 : Form
         _mainPanel.Controls.Add(_startButton);
         y += 42;
 
+        _autoStartCheck = new CheckBox { Left = 12, Top = y, Width = 280, Height = 24, Text = "Windows起動時に自動起動" };
+        _autoStartCheck.CheckedChanged += (_, _) =>
+        {
+            SaveState();
+            ApplyStartupSetting();
+        };
+        _mainPanel.Controls.Add(_autoStartCheck);
+        y += 26;
+
+        _startInBackgroundCheck = new CheckBox { Left = 12, Top = y, Width = 320, Height = 24, Text = "起動時はバックグラウンド（トレイのみ）" };
+        _startInBackgroundCheck.Checked = true;
+        _startInBackgroundCheck.CheckedChanged += (_, _) => SaveState();
+        _mainPanel.Controls.Add(_startInBackgroundCheck);
+        y += 30;
+
         _countLabel = MakeLabel("RAW:0 / JPG:0 / MP4:0", 12, y);
         _mainPanel.Controls.Add(_countLabel); y += 30;
         _progressLabel = MakeLabel("待機中", 12, y);
@@ -157,6 +180,8 @@ public partial class Form1 : Form
             root = dlg.SelectedPath;
         }
 
+        _selectedSdText.Text = root ?? "";
+        ResetScannedState();
         AppendLog($"スキャン開始: {root}");
         List<string> files;
         try
@@ -175,13 +200,18 @@ public partial class Form1 : Form
             return false;
         }
 
-        _selectedSdText.Text = root ?? "";
         _scannedFiles = files;
         SaveState();
         var (raw, jpg, mp4) = CountByType(files);
         _countLabel.Text = $"RAW:{raw} / JPG:{jpg} / MP4:{mp4}";
         AppendLog($"{files.Count} 件検出 / RAW:{raw} / JPG:{jpg} / MP4:{mp4}");
         return true;
+    }
+
+    private void ResetScannedState()
+    {
+        _scannedFiles = [];
+        _countLabel.Text = "RAW:0 / JPG:0 / MP4:0";
     }
 
     private async Task StartProcessAsync()
@@ -592,6 +622,9 @@ public partial class Form1 : Form
             if (state is null) return;
             if (!string.IsNullOrWhiteSpace(state.DestinationPath)) _destinationText.Text = state.DestinationPath;
             if (!string.IsNullOrWhiteSpace(state.SelectedSdPath)) _selectedSdText.Text = state.SelectedSdPath;
+            _autoStartCheck.Checked = state.AutoStart;
+            _startInBackgroundCheck.Checked = state.StartInBackground;
+            ApplyStartupSetting();
         }
         catch (Exception ex)
         {
@@ -612,13 +645,36 @@ public partial class Form1 : Form
             var state = new AppState
             {
                 DestinationPath = _destinationText.Text.Trim(),
-                SelectedSdPath = _selectedSdText.Text.Trim()
+                SelectedSdPath = _selectedSdText.Text.Trim(),
+                AutoStart = _autoStartCheck.Checked,
+                StartInBackground = _startInBackgroundCheck.Checked
             };
             File.WriteAllText(_statePath, JsonSerializer.Serialize(state));
         }
         catch (Exception ex)
         {
             AppendLog($"前回設定の保存失敗: {ex.Message}");
+        }
+    }
+
+    private void ApplyStartupSetting()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true) ?? Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true);
+            if (key is null) return;
+            if (_autoStartCheck.Checked)
+            {
+                key.SetValue(RunValueName, $"\"{Application.ExecutablePath}\"");
+            }
+            else
+            {
+                key.DeleteValue(RunValueName, throwOnMissingValue: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"自動起動設定更新失敗: {ex.Message}");
         }
     }
 
@@ -671,6 +727,8 @@ public partial class Form1 : Form
     {
         public string DestinationPath { get; set; } = "";
         public string SelectedSdPath { get; set; } = "";
+        public bool AutoStart { get; set; }
+        public bool StartInBackground { get; set; } = true;
     }
 
     private sealed class AppConfig

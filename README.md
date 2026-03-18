@@ -34,6 +34,9 @@ SDカードを検知してメディアをスキャンし、指定保存先へ以
    - コピー後に「サイズ + 更新日時(UTC)」を検証
 6. **失敗ファイル自動再試行**
    - 失敗分のみ1回再実行
+7. **起動設定**
+   - Windows起動時の自動起動 ON/OFF
+   - 起動時バックグラウンド（トレイのみ）ON/OFF
 
 ## 対応形式
 
@@ -89,6 +92,8 @@ config.json
 
 - 保存先パス
 - 選択中のSDパス
+- Windows起動時の自動起動設定
+- 起動時バックグラウンド設定
 
 保存先:
 
@@ -135,3 +140,5 @@ dotnet publish PhotoOrganizer.csproj -c Release -r win-x64 --self-contained true
 ```text
 publish\win-x64\PhotoOrganizer.exe
 ```
+
+※ Release構成では `DebugSymbols=false` / `DebugType=None` をプロジェクト設定で固定し、PDBを生成しません。
