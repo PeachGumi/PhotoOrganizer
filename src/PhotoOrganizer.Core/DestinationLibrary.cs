@@ -91,6 +91,12 @@ public sealed class DestinationLibrary
             return new DestinationIndex(filesBySize, errors);
         }
 
+        if (!PathSafety.TryValidateDirectFilesystemPath(destinationRoot, out var pathError))
+        {
+            errors.Add($"Destination root is not a direct filesystem path: {pathError}");
+            return new DestinationIndex(filesBySize, errors);
+        }
+
         if (!Directory.Exists(destinationRoot))
         {
             return new DestinationIndex(filesBySize, errors);

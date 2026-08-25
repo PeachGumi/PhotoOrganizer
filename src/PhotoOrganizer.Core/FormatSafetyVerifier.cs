@@ -138,7 +138,19 @@ public sealed class FormatSafetyVerifier
         var index = new Dictionary<long, List<string>>();
         var errors = new List<string>();
 
-        if (string.IsNullOrWhiteSpace(destinationRoot) || !Directory.Exists(destinationRoot))
+        if (string.IsNullOrWhiteSpace(destinationRoot))
+        {
+            errors.Add("Destination root does not exist or is not a directory.");
+            return new DestinationIndex(index, errors);
+        }
+
+        if (!PathSafety.TryValidateDirectFilesystemPath(destinationRoot, out var pathError))
+        {
+            errors.Add($"Destination root is not a direct filesystem path: {pathError}");
+            return new DestinationIndex(index, errors);
+        }
+
+        if (!Directory.Exists(destinationRoot))
         {
             errors.Add("Destination root does not exist or is not a directory.");
             return new DestinationIndex(index, errors);

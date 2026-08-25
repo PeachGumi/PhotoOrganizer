@@ -28,6 +28,14 @@ Any scan error is fail-closed. Supported zero-byte media is an error. An incompl
 
 Manual selection of a nested camera directory must be expanded to the safe camera-card root. An arbitrary folder must not be accepted as equivalent to a complete card scan.
 
+## Destination path independence
+
+A destination used for copy, duplicate lookup, or final reuse verification must not pass through a user-controlled symbolic link, junction, or other reparse point. A platform may recognize a fixed OS-owned compatibility alias only when its resolved target is explicitly verified against the expected system path; all other aliases fail closed.
+
+A lexical path alias must never count as an independent backup. In particular, a destination path that resolves back onto the camera card must not be allowed to write data or prove that the source bytes have been backed up.
+
+Source and destination must also resolve to different mounted-storage identities. Path strings alone are insufficient proof of independence.
+
 ## Copy transaction
 
 For every new source file:
@@ -54,11 +62,12 @@ Reuse approval requires all of the following after copy processing:
 - the same selected source storage is still mounted;
 - the same selected destination storage is still mounted;
 - source and destination storage identities still match the identities captured for this operation;
+- the destination path remains free of user-controlled symlink/junction/reparse aliases;
 - a fresh complete scan of the whole safe camera-card scope succeeds;
 - all supported source media expected from the initial scan is still present;
 - every currently supported source file is non-zero and readable;
 - an independent destination file with equal size and SHA-256 exists for every supported source file;
-- a source path itself is never accepted as proof of an independent destination copy;
+- a source path itself, including the same bytes reached through a path alias, is never accepted as proof of an independent destination copy;
 - storage identity is checked again after hashing before approval is displayed.
 
 If any condition cannot be proved, the UI must remain blocked/not-verified.
