@@ -9,15 +9,24 @@ public sealed record FormatVerificationResult(
     public bool IsSafe => Total > 0 && Verified == Total && UnverifiedFiles.Count == 0 && Errors.Count == 0;
 }
 
-public sealed class FormatSafetyVerifier(MediaClassifier classifier)
+public sealed class FormatSafetyVerifier
 {
+    private readonly MediaClassifier _classifier;
+    private readonly IStorageVolumeProvider? _volumeProvider;
+
+    public FormatSafetyVerifier(MediaClassifier classifier, IStorageVolumeProvider? volumeProvider = null)
+    {
+        _classifier = classifier;
+        _volumeProvider = volumeProvider;
+    }
+
     public async Task<FormatVerificationResult> VerifyAsync(
         IEnumerable<string> sourceFiles,
         string destinationRoot,
         CancellationToken cancellationToken = default)
     {
         var supported = sourceFiles
-            .Where(classifier.IsSupported)
+            .Where(_classifier.IsSupported)
             .Select(Path.GetFullPath)
             .Distinct(PathComparer.Instance)
             .OrderBy(path => path, PathComparer.Instance)
@@ -41,6 +50,7 @@ public sealed class FormatSafetyVerifier(MediaClassifier classifier)
         var unverified = new List<string>();
         var errors = new List<string>();
         var verified = 0;
+        var destinationHashCache = new Dictionary<string, string>(PathComparer.Instance);
 
         foreach (var source in supported)
         {
@@ -74,7 +84,12 @@ public sealed class FormatSafetyVerifier(MediaClassifier classifier)
 
                     try
                     {
-                        var destinationHash = await Hashing.Sha256Async(candidate, cancellationToken).ConfigureAwait(false);
+                        if (!destinationHashCache.TryGetValue(candidate, out var destinationHash))
+                        {
+                            destinationHash = await Hashing.Sha256Async(candidate, cancellationToken).ConfigureAwait(false);
+                            destinationHashCache[candidate] = destinationHash;
+                        }
+
                         if (string.Equals(sourceHash, destinationHash, StringComparison.Ordinal))
                         {
                             matched = true;
@@ -106,7 +121,7 @@ public sealed class FormatSafetyVerifier(MediaClassifier classifier)
         return new FormatVerificationResult(supported.Length, verified, unverified, errors);
     }
 
-    private static DestinationIndex BuildDestinationIndex(string destinationRoot)
+    private DestinationIndex BuildDestinationIndex(string destinationRoot)
     {
         var index = new Dictionary<long, List<string>>();
         var errors = new List<string>();
@@ -117,8 +132,20 @@ public sealed class FormatSafetyVerifier(MediaClassifier classifier)
             return new DestinationIndex(index, errors);
         }
 
+        var root = Path.GetFullPath(destinationRoot);
+        VolumeTraversalGuard guard;
+        try
+        {
+            guard = VolumeTraversalGuard.Create(root, _volumeProvider);
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"Unable to establish destination volume boundary: {ex.Message}");
+            return new DestinationIndex(index, errors);
+        }
+
         var stack = new Stack<string>();
-        stack.Push(Path.GetFullPath(destinationRoot));
+        stack.Push(root);
 
         while (stack.Count > 0)
         {
@@ -152,11 +179,19 @@ public sealed class FormatSafetyVerifier(MediaClassifier classifier)
                             continue;
                         }
 
+                        if (guard.IsNestedMountedVolume(entry.FullName))
+                        {
+                            continue;
+                        }
+
                         stack.Push(entry.FullName);
                         continue;
                     }
 
-                    if (entry is not FileInfo file || file.Length <= 0 || file.Name.StartsWith(".partial-", StringComparison.Ordinal))
+                    if (entry is not FileInfo file
+                        || file.Length <= 0
+                        || file.Name.StartsWith(".partial-", StringComparison.Ordinal)
+                        || file.Name.Contains(".partial-", StringComparison.Ordinal))
                     {
                         continue;
                     }
