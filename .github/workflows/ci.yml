@@ -40,8 +40,14 @@ jobs:
       - name: Restore app
         run: dotnet restore src/PhotoOrganizer.App/PhotoOrganizer.App.csproj
 
+      - name: Restore platform identity tests
+        run: dotnet restore tests/PhotoOrganizer.App.Tests/PhotoOrganizer.App.Tests.csproj
+
       - name: Run shared safety tests
         run: dotnet test tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj --configuration Release --no-restore
+
+      - name: Run platform storage identity tests
+        run: dotnet test tests/PhotoOrganizer.App.Tests/PhotoOrganizer.App.Tests.csproj --configuration Release --no-restore
 
       - name: Build unified desktop app
         run: dotnet build src/PhotoOrganizer.App/PhotoOrganizer.App.csproj --configuration Release --no-restore
