@@ -18,7 +18,7 @@ public sealed class SafeCopyService
         string destinationDirectory,
         CancellationToken cancellationToken = default)
     {
-        string? temporaryPath = null;
+        string? temporaryPathForCleanup = null;
 
         try
         {
@@ -51,7 +51,8 @@ public sealed class SafeCopyService
                 return new CopyResult(CopyStatus.SkippedDuplicate, resolution.Path);
             }
 
-            temporaryPath = Path.Combine(destinationDirectory, $".partial-{Guid.NewGuid():N}");
+            var transactionTemporaryPath = Path.Combine(destinationDirectory, $".partial-{Guid.NewGuid():N}");
+            temporaryPathForCleanup = transactionTemporaryPath;
 
             await using (var source = new FileStream(
                              sourcePath,
@@ -61,7 +62,7 @@ public sealed class SafeCopyService
                              BufferSize,
                              FileOptions.Asynchronous | FileOptions.SequentialScan))
             await using (var destination = new FileStream(
-                             temporaryPath,
+                             transactionTemporaryPath,
                              FileMode.CreateNew,
                              FileAccess.Write,
                              FileShare.None,
@@ -73,13 +74,13 @@ public sealed class SafeCopyService
                 destination.Flush(flushToDisk: true);
             }
 
-            var temporaryInfo = new FileInfo(temporaryPath);
+            var temporaryInfo = new FileInfo(transactionTemporaryPath);
             if (temporaryInfo.Length != sourceSize)
             {
                 return new CopyResult(CopyStatus.Failed, null, "Temporary copy size verification failed.");
             }
 
-            var temporaryHash = await Hashing.Sha256Async(temporaryPath, cancellationToken).ConfigureAwait(false);
+            var temporaryHash = await Hashing.Sha256Async(transactionTemporaryPath, cancellationToken).ConfigureAwait(false);
             if (!string.Equals(sourceHashBefore, temporaryHash, StringComparison.Ordinal))
             {
                 return new CopyResult(CopyStatus.Failed, null, "Temporary copy SHA-256 verification failed.");
@@ -102,8 +103,8 @@ public sealed class SafeCopyService
             {
                 try
                 {
-                    File.Move(temporaryPath, finalPath, overwrite: false);
-                    temporaryPath = null;
+                    File.Move(transactionTemporaryPath, finalPath, overwrite: false);
+                    temporaryPathForCleanup = null;
                     break;
                 }
                 catch (IOException) when (File.Exists(finalPath))
@@ -147,11 +148,11 @@ public sealed class SafeCopyService
         finally
         {
             // The only file this service deletes is its own never-finalized temporary file.
-            if (temporaryPath is not null && File.Exists(temporaryPath))
+            if (temporaryPathForCleanup is not null && File.Exists(temporaryPathForCleanup))
             {
                 try
                 {
-                    File.Delete(temporaryPath);
+                    File.Delete(temporaryPathForCleanup);
                 }
                 catch
                 {
