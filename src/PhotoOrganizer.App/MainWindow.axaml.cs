@@ -25,6 +25,7 @@ public sealed partial class MainWindow : Window
         _viewModel = viewModel;
         DataContext = viewModel;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        StartInBackgroundCheckBox.Click += StartInBackground_Changed;
 
         Closing += OnClosing;
         Closed += OnClosed;
@@ -46,6 +47,7 @@ public sealed partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        StartInBackgroundCheckBox.Click -= StartInBackground_Changed;
         if (_viewModel is not null) _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
     }
 
