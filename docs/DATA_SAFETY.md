@@ -22,6 +22,8 @@ The application must not offer an operation that formats or erases the camera ca
 
 A scan is complete only if every directory and relevant file in the selected camera-card scope was enumerated without an I/O or metadata error.
 
+Hidden or dot-prefixed directories are not an exception: supported JPG/JPEG, configured RAW, MOV, or MP4 media inside them remains in scope and must be discovered. Unsupported hidden sidecars/system metadata remain outside import scope. Reparse points/symlinks and nested mounted volumes are excluded so scanning cannot escape the selected physical card.
+
 Any scan error is fail-closed. Supported zero-byte media is an error. An incomplete scan must never start an import or produce a reusable-card approval.
 
 Manual selection of a nested camera directory must be expanded to the safe camera-card root. An arbitrary folder must not be accepted as equivalent to a complete card scan.
