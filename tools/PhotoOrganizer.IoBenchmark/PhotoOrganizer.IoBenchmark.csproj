@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>PhotoOrganizer.IoBenchmark</AssemblyName>
+    <RootNamespace>PhotoOrganizer.IoBenchmark</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/PhotoOrganizer.Core/PhotoOrganizer.Core.csproj" />
+  </ItemGroup>
+</Project>

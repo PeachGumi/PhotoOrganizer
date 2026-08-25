@@ -1,0 +1,60 @@
+name: I/O Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'Synthetic source file count'
+        required: false
+        default: '120'
+        type: string
+      size_kib:
+        description: 'Synthetic source file size in KiB'
+        required: false
+        default: '128'
+        type: string
+      noise:
+        description: 'Different-size destination library noise files'
+        required: false
+        default: '300'
+        type: string
+  pull_request:
+    paths:
+      - 'src/PhotoOrganizer.Core/**'
+      - 'tests/PhotoOrganizer.Core.Tests/**'
+      - 'tools/PhotoOrganizer.IoBenchmark/**'
+      - '.github/workflows/io-benchmark.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: SHA-256 I/O benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.400
+
+      - name: Run safety regression tests
+        run: dotnet test tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj --configuration Release
+
+      - name: Run measured I/O benchmark
+        shell: bash
+        env:
+          INPUT_FILES: ${{ inputs.files }}
+          INPUT_SIZE_KIB: ${{ inputs.size_kib }}
+          INPUT_NOISE: ${{ inputs.noise }}
+        run: |
+          set -euo pipefail
+          files="${INPUT_FILES:-120}"
+          size_kib="${INPUT_SIZE_KIB:-128}"
+          noise="${INPUT_NOISE:-300}"
+          dotnet run --project tools/PhotoOrganizer.IoBenchmark/PhotoOrganizer.IoBenchmark.csproj \
+            --configuration Release -- \
+            "--files=$files" "--size-kib=$size_kib" "--noise=$noise"

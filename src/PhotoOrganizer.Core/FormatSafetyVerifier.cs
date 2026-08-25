@@ -13,11 +13,16 @@ public sealed class FormatSafetyVerifier
 {
     private readonly MediaClassifier _classifier;
     private readonly IStorageVolumeProvider? _volumeProvider;
+    private readonly IFileHasher _hasher;
 
-    public FormatSafetyVerifier(MediaClassifier classifier, IStorageVolumeProvider? volumeProvider = null)
+    public FormatSafetyVerifier(
+        MediaClassifier classifier,
+        IStorageVolumeProvider? volumeProvider = null,
+        IFileHasher? hasher = null)
     {
         _classifier = classifier;
         _volumeProvider = volumeProvider;
+        _hasher = hasher ?? new Sha256FileHasher();
     }
 
     public async Task<FormatVerificationResult> VerifyAsync(
@@ -50,6 +55,11 @@ public sealed class FormatSafetyVerifier
         var unverified = new List<string>();
         var errors = new List<string>();
         var verified = 0;
+
+        // This cache exists only for this one *fresh* verification invocation. It
+        // prevents rereading a destination candidate for multiple source files but
+        // is discarded immediately afterward. A later reuse decision always hashes
+        // destination bytes again from disk.
         var destinationHashCache = new Dictionary<string, string>(PathComparer.Instance);
 
         foreach (var source in supported)
@@ -65,13 +75,15 @@ public sealed class FormatSafetyVerifier
                     continue;
                 }
 
+                // No same-size candidate means no byte-identical destination can
+                // exist, so do not read/hash the source unnecessarily.
                 if (!destinationIndex.FilesBySize.TryGetValue(sourceInfo.Length, out var candidates))
                 {
                     unverified.Add(source);
                     continue;
                 }
 
-                var sourceHash = await Hashing.Sha256Async(source, cancellationToken).ConfigureAwait(false);
+                var sourceHash = await _hasher.Sha256Async(source, cancellationToken).ConfigureAwait(false);
                 var matched = false;
 
                 foreach (var candidate in candidates)
@@ -86,7 +98,7 @@ public sealed class FormatSafetyVerifier
                     {
                         if (!destinationHashCache.TryGetValue(candidate, out var destinationHash))
                         {
-                            destinationHash = await Hashing.Sha256Async(candidate, cancellationToken).ConfigureAwait(false);
+                            destinationHash = await _hasher.Sha256Async(candidate, cancellationToken).ConfigureAwait(false);
                             destinationHashCache[candidate] = destinationHash;
                         }
 
