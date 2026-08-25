@@ -55,8 +55,25 @@ Use disposable/test media with independent ground-truth copies. Do not begin acc
 - [ ] Same-name identical bytes are treated as an already-backed-up duplicate and no unnecessary collision copy is created.
 - [ ] Reusing a camera filename with the same size but different bytes is never mistaken for an old import.
 - [ ] If a supported file copy fails, the run remains blocked rather than silently declaring success; rerunning safely skips files already proven byte-identical and retries the remaining work under a fresh transaction.
-- [ ] Copy completion does not show the green reuse state before the post-import rescan and SHA-256 verification finish.
-- [ ] Green `保存先コピー検証済み — SDカード再利用可能` appears only after every currently supported file on the card has an independent destination size+SHA-256 match.
+- [ ] Copy completion does not show the green reuse state before the post-import rescan, fresh SHA-256 verification, durable destination synchronization, and final storage-identity checks finish.
+- [ ] Green `保存先コピー検証済み — SDカード再利用可能` appears only after every currently supported file on the card has an independent destination size+SHA-256 match whose destination can be durably synchronized.
+- [ ] The green detail/log explicitly reports durable destination synchronization; it must not describe a cache-readable SHA-256 match alone as sufficient proof.
+
+## Durable destination interruption acceptance
+
+This section is intentionally destructive. Use a **disposable destination device/filesystem** and keep independent ground-truth copies elsewhere. Never perform this test with irreplaceable photos, a production photo library, or a storage device whose filesystem damage would matter.
+
+Run this on both Windows and macOS using a removable destination device where an abrupt disconnect is practical:
+
+- [ ] Import a representative JPG/RAW/video set and wait for the verified green state.
+- [ ] Record the exact destination file list, sizes, and independent ground-truth SHA-256 values before the interruption.
+- [ ] Without performing a normal clean eject, abruptly disconnect the disposable destination shortly after green is displayed. Do not disconnect the camera card as part of this case.
+- [ ] Reconnect/remount the destination, run the operating system's appropriate filesystem check if the abrupt disconnect caused a filesystem warning, and independently hash every copied destination file.
+- [ ] Every verified file remains present and byte-identical to ground truth; no final library entry exists only as a lost volatile-cache write.
+- [ ] Repeat the case at least once with a larger file/video so the storage write path is meaningfully exercised.
+- [ ] Record destination device/filesystem/controller details and any OS warnings. A filesystem or device that cannot safely support the durability contract blocks release acceptance for that tested configuration rather than weakening the green-state definition.
+
+This acceptance case validates the practical storage path but is not a mathematical guarantee against defective hardware or firmware that lies about flush completion. The application must still fail closed whenever the operating system reports a durability operation failure.
 
 ## Repeated shooting workflow
 
@@ -72,7 +89,7 @@ For every cycle:
 - [ ] Only genuinely new bytes consume new destination space.
 - [ ] Duplicate-only import does not create an empty event folder.
 - [ ] Event date is based on pending/new media when present.
-- [ ] Final verification covers all supported media currently visible on the card.
+- [ ] Final verification covers all supported media currently visible on the card and includes durable synchronization of the matched destination copies.
 
 ## Failure and race scenarios
 
@@ -87,7 +104,7 @@ For every cycle:
 - [ ] Change the physical-device mapping associated with an otherwise unchanged mounted-volume identity: the previous session is invalidated.
 - [ ] Insert a second camera card while the first is being scanned/imported: active target does not switch and the second card is queued.
 - [ ] Remove a queued second card before it becomes active: it is removed from the queue and is not scanned from stale state.
-- [ ] Add a new supported file to the card between initial scan and final verification: final rescan includes it, and reuse cannot become safe unless that file also exists byte-identically in the destination.
+- [ ] Add a new supported file to the card between initial scan and final verification: final rescan includes it, and reuse cannot become safe unless that file also exists byte-identically and durably in the destination.
 - [ ] Make an initially scanned supported file disappear before final verification: reuse is blocked.
 - [ ] Force-kill the process during import, relaunch it, and confirm no previous reuse-safe state is restored.
 

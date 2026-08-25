@@ -85,7 +85,7 @@
     <Grid Grid.Row="3" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
       <Button Grid.Column="0" Content="取り込み開始" Click="Import_Click"
               IsEnabled="{Binding CanImport}" MinWidth="120" />
-      <Button Grid.Column="1" Content="キャンセル" Click="Cancel_Click"
+      <Button Grid.Row="0" Grid.Column="1" Content="キャンセル" Click="Cancel_Click"
               IsEnabled="{Binding CanCancel}" />
       <TextBlock Grid.Column="2" Text="{Binding ProgressLabel}" VerticalAlignment="Center" Opacity="0.75" />
       <TextBlock Grid.Column="3" Text="対象: JPG/JPEG・設定済みRAW・MOV/MP4"
@@ -99,14 +99,14 @@
         <TextBlock Text="{Binding SafetyHeadline}" FontSize="17" FontWeight="SemiBold"
                    Foreground="{Binding SafetyBrush}" TextWrapping="Wrap" />
         <TextBlock Text="{Binding SafetyDetail}" TextWrapping="Wrap" />
-        <TextBlock Text="緑表示は指定保存先1か所への実ファイル検証を意味します。別媒体への二重バックアップ済みという意味ではありません。"
+        <TextBlock Text="緑表示は指定保存先1か所への実ファイル照合と永続媒体への同期を確認したことを意味します。別媒体への二重バックアップ済みという意味ではありません。"
                    Opacity="0.65" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
 
     <Border Grid.Row="5" Padding="10" CornerRadius="6" BorderThickness="1">
       <TextBlock TextWrapping="Wrap"
-                 Text="重要: コピー処理が完了しただけではSDカードを再利用しないでください。取り込み後のカード全体再スキャンと保存先のサイズ・SHA-256照合が完了した場合だけ再利用可能になります。" />
+                 Text="重要: コピー処理が完了しただけではSDカードを再利用しないでください。取り込み後のカード全体再スキャン、保存先のサイズ・SHA-256照合、永続媒体への同期（durable commit）が完了した場合だけ再利用可能になります。" />
     </Border>
 
     <TextBlock Grid.Row="6" Text="ログ" FontWeight="SemiBold" />
