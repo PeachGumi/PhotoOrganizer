@@ -81,8 +81,8 @@ public sealed class IoOptimizationTests
 
         Assert.IsTrue(first.IsSafe);
         Assert.IsTrue(second.IsSafe);
-        Assert.AreEqual(2, hasher.CallCount(destination),
-            "Destination bytes must be freshly hashed on every reuse-verification invocation.");
+        Assert.AreEqual(4, hasher.CallCount(destination),
+            "Each fresh reuse-verification invocation must read the destination before and after durable synchronization; the post-durability proof may be reused only within that invocation.");
     }
 
     private sealed class CountingHasher : IFileHasher
