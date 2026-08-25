@@ -1,34 +1,105 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:PhotoOrganizer.App"
         x:Class="PhotoOrganizer.App.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
         Title="Photo Organizer"
-        Width="760"
-        Height="560"
-        MinWidth="640"
-        MinHeight="480">
-  <ScrollViewer>
-    <StackPanel Margin="32" Spacing="18">
-      <TextBlock Text="Photo Organizer" FontSize="30" FontWeight="SemiBold" />
-      <TextBlock Text="Windows / macOS unified edition" FontSize="16" Opacity="0.72" />
-
-      <Border Padding="18" CornerRadius="10" BorderThickness="1">
-        <StackPanel Spacing="8">
-          <TextBlock Text="Migration foundation" FontSize="18" FontWeight="SemiBold" />
-          <TextBlock TextWrapping="Wrap"
-                     Text="The shared data-safety core is active. SD-card detection, platform storage identity, import orchestration, and production release packaging are being migrated from the existing Windows and macOS applications." />
-        </StackPanel>
-      </Border>
-
-      <Border Padding="18" CornerRadius="10" BorderThickness="1">
-        <StackPanel Spacing="8">
-          <TextBlock Text="Data-safety contract" FontSize="18" FontWeight="SemiBold" />
-          <TextBlock TextWrapping="Wrap"
-                     Text="Source media is never overwritten, moved, renamed, modified, or deleted. Copy completion alone must never authorize SD-card reuse. Reuse requires a complete scan and fresh byte-for-byte destination verification." />
-        </StackPanel>
-      </Border>
-
-      <TextBlock TextWrapping="Wrap" Opacity="0.72"
-                 Text="This bootstrap build is not yet a production release. Existing PhotoOrganizer-win and PhotoOrganizer-mac remain the operational references until migration acceptance is complete." />
+        Width="920"
+        Height="760"
+        MinWidth="760"
+        MinHeight="680">
+  <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="12">
+    <StackPanel Grid.Row="0" Spacing="3">
+      <TextBlock Text="Photo Organizer" FontSize="28" FontWeight="SemiBold" />
+      <TextBlock Text="Windows / macOS 共通版 — SDカードの撮影データを安全に整理・検証します"
+                 Opacity="0.7" />
     </StackPanel>
-  </ScrollViewer>
+
+    <Border Grid.Row="1" Padding="14" CornerRadius="8" BorderThickness="1">
+      <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="130,*,Auto" RowSpacing="9" ColumnSpacing="8">
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="保存先" VerticalAlignment="Center" />
+        <TextBox Grid.Row="0" Grid.Column="1"
+                 Text="{Binding DestinationPath, Mode=TwoWay}"
+                 IsEnabled="{Binding !IsBusy}"
+                 PlaceholderText="写真ライブラリの保存先" />
+        <Button Grid.Row="0" Grid.Column="2" Content="選択..." Click="SelectDestination_Click"
+                IsEnabled="{Binding !IsBusy}" />
+
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="イベント名" VerticalAlignment="Center" />
+        <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                 Text="{Binding EventName, Mode=TwoWay}"
+                 IsEnabled="{Binding !IsBusy}"
+                 PlaceholderText="例: 旅行、運動会、撮影会" />
+
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="選択中のSD" VerticalAlignment="Center" />
+        <TextBox Grid.Row="2" Grid.Column="1"
+                 Text="{Binding SelectedSdPath}"
+                 IsReadOnly="True"
+                 PlaceholderText="カメラカード未選択" />
+        <Button Grid.Row="2" Grid.Column="2" Content="SDカード選択" Click="SelectSd_Click"
+                IsEnabled="{Binding !IsBusy}" />
+
+        <TextBlock Grid.Row="3" Grid.Column="0" Text="検出メディア" VerticalAlignment="Center" />
+        <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="14">
+          <TextBlock Text="{Binding CountLabel}" FontWeight="SemiBold" />
+          <TextBlock Text="{Binding PendingSdText}" Opacity="0.7" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="2" Padding="14" CornerRadius="8" BorderThickness="1">
+      <Grid ColumnDefinitions="130,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="8">
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="RAW拡張子" VerticalAlignment="Center" />
+        <TextBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
+                 Text="{Binding RawExtensionsText, Mode=TwoWay}"
+                 IsEnabled="{Binding !IsBusy}"
+                 PlaceholderText=".arw, .cr3, .nef, ..." />
+
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="起動設定" VerticalAlignment="Center" />
+        <CheckBox Grid.Row="1" Grid.Column="1"
+                  Content="ログイン時に自動起動"
+                  IsChecked="{Binding AutoStart, Mode=TwoWay}"
+                  IsEnabled="{Binding AutoStartSupported}" />
+        <TextBlock Grid.Row="1" Grid.Column="2" Text="安全判定は再起動後に引き継ぎません" Opacity="0.65" />
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="3" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
+      <Button Grid.Column="0" Content="取り込み開始" Click="Import_Click"
+              IsEnabled="{Binding CanImport}" MinWidth="120" />
+      <Button Grid.Column="1" Content="キャンセル" Click="Cancel_Click"
+              IsEnabled="{Binding CanCancel}" />
+      <TextBlock Grid.Column="2" Text="{Binding ProgressLabel}" VerticalAlignment="Center" Opacity="0.75" />
+      <TextBlock Grid.Column="3" Text="対象: JPG/JPEG・設定済みRAW・MOV/MP4"
+                 VerticalAlignment="Center" Opacity="0.65" />
+    </Grid>
+
+    <Border Grid.Row="4" Padding="14" CornerRadius="8" BorderThickness="2"
+            BorderBrush="{Binding SafetyBrush}">
+      <StackPanel Spacing="5">
+        <TextBlock Text="SDカード再利用の安全確認" FontSize="16" FontWeight="SemiBold" />
+        <TextBlock Text="{Binding SafetyHeadline}" FontSize="17" FontWeight="SemiBold"
+                   Foreground="{Binding SafetyBrush}" TextWrapping="Wrap" />
+        <TextBlock Text="{Binding SafetyDetail}" TextWrapping="Wrap" />
+        <TextBlock Text="緑表示は指定保存先1か所への実ファイル検証を意味します。別媒体への二重バックアップ済みという意味ではありません。"
+                   Opacity="0.65" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <Border Grid.Row="5" Padding="10" CornerRadius="6" BorderThickness="1">
+      <TextBlock TextWrapping="Wrap"
+                 Text="重要: コピー処理が完了しただけではSDカードを再利用しないでください。取り込み後のカード全体再スキャンと保存先のサイズ・SHA-256照合が完了した場合だけ再利用可能になります。" />
+    </Border>
+
+    <TextBlock Grid.Row="6" Text="ログ" FontWeight="SemiBold" />
+
+    <TextBox Grid.Row="7"
+             Text="{Binding LogText}"
+             IsReadOnly="True"
+             AcceptsReturn="True"
+             TextWrapping="NoWrap"
+             ScrollViewer.VerticalScrollBarVisibility="Auto"
+             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+             FontFamily="monospace" />
+  </Grid>
 </Window>
