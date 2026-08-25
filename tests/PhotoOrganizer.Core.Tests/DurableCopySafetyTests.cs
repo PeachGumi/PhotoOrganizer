@@ -25,6 +25,25 @@ public sealed class DurableCopySafetyTests
     }
 
     [TestMethod]
+    public async Task ExistingDirectoryWithRequestedFileName_IsPreservedAndUsesCollisionSuffix()
+    {
+        using var temp = new TempDirectory();
+        var sourceDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "source")).FullName;
+        var destinationDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "destination")).FullName;
+        var source = Path.Combine(sourceDirectory, "DSC_0001.jpg");
+        var conflictingDirectory = Directory.CreateDirectory(Path.Combine(destinationDirectory, "DSC_0001.jpg")).FullName;
+        File.WriteAllText(source, "camera-data");
+
+        var result = await new SafeCopyService().CopyAsync(source, destinationDirectory);
+
+        Assert.AreEqual(CopyStatus.Copied, result.Status, result.Error);
+        Assert.IsTrue(Directory.Exists(conflictingDirectory));
+        Assert.AreEqual(
+            "camera-data",
+            File.ReadAllText(Path.Combine(destinationDirectory, "DSC_0001_2.jpg")));
+    }
+
+    [TestMethod]
     public async Task FinalReuseVerification_DurabilityFailureLeavesMatchingBytesUnverified()
     {
         using var temp = new TempDirectory();
