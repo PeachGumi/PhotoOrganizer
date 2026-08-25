@@ -72,9 +72,7 @@
         <TextBlock Grid.Row="2" Grid.Column="0" Text="起動時表示" VerticalAlignment="Center" />
         <CheckBox x:Name="StartInBackgroundCheckBox"
                   Grid.Row="2" Grid.Column="1"
-                  Content="バックグラウンド（トレイ/メニューバー）から開始"
-                  Checked="StartInBackground_Changed"
-                  Unchecked="StartInBackground_Changed" />
+                  Content="バックグラウンド（トレイ/メニューバー）から開始" />
         <TextBlock x:Name="BackgroundSettingStatus"
                    Grid.Row="2" Grid.Column="2"
                    MaxWidth="300"
