@@ -49,8 +49,8 @@ public sealed partial class App : Application
             _mainWindow = new MainWindow(_viewModel);
 
             var backgroundPreferences = new BackgroundPreferencesStore().Load();
-            var requestedBackground = desktop.Args.Any(
-                argument => string.Equals(argument, "--background", StringComparison.OrdinalIgnoreCase));
+            var requestedBackground = (desktop.Args ?? [])
+                .Any(argument => string.Equals(argument, "--background", StringComparison.OrdinalIgnoreCase));
             var startHidden = requestedBackground || backgroundPreferences.StartInBackground;
 
             if (!startHidden)
