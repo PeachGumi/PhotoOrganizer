@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO="${1:-PeachGumi/PhotoOrganizer}"
 SIGNING_ENVIRONMENT="production-signing"
+RELEASE_ENVIRONMENT="production-release"
 
 command -v gh >/dev/null 2>&1 || { echo "GitHub CLI (gh) is required." >&2; exit 1; }
 gh auth status >/dev/null
@@ -62,9 +63,10 @@ cat <<'JSON' | gh api --method PUT "repos/${REPO}/branches/main/protection" --in
 }
 JSON
 
-# Production signing credentials live in an Environment whose server-side branch
-# policy permits only main. Reset the custom policies to exactly one main-branch rule.
-cat <<'JSON' | gh api --method PUT "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}" --input - >/dev/null
+configure_main_only_environment() {
+  local environment="$1"
+
+  cat <<'JSON' | gh api --method PUT "repos/${REPO}/environments/${environment}" --input - >/dev/null
 {
   "deployment_branch_policy": {
     "protected_branches": false,
@@ -73,16 +75,30 @@ cat <<'JSON' | gh api --method PUT "repos/${REPO}/environments/${SIGNING_ENVIRON
 }
 JSON
 
-while IFS= read -r policy_id; do
-  [[ -n "$policy_id" ]] || continue
-  gh api --method DELETE \
-    "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}/deployment-branch-policies/${policy_id}" >/dev/null
-done < <(gh api "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}/deployment-branch-policies?per_page=100" \
-  --jq '.branch_policies[].id')
+  while IFS= read -r policy_id; do
+    [[ -n "$policy_id" ]] || continue
+    gh api --method DELETE \
+      "repos/${REPO}/environments/${environment}/deployment-branch-policies/${policy_id}" >/dev/null
+  done < <(gh api "repos/${REPO}/environments/${environment}/deployment-branch-policies?per_page=100" \
+    --jq '.branch_policies[].id')
 
-gh api --method POST \
-  "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}/deployment-branch-policies" \
-  -f name='main' -f type='branch' >/dev/null
+  gh api --method POST \
+    "repos/${REPO}/environments/${environment}/deployment-branch-policies" \
+    -f name='main' -f type='branch' >/dev/null
+}
+
+verify_main_only_environment() {
+  local environment="$1"
+  [[ "$(gh api "repos/${REPO}/environments/${environment}" --jq '.deployment_branch_policy.protected_branches')" == "false" ]]
+  [[ "$(gh api "repos/${REPO}/environments/${environment}" --jq '.deployment_branch_policy.custom_branch_policies')" == "true" ]]
+  [[ "$(gh api "repos/${REPO}/environments/${environment}/deployment-branch-policies?per_page=100" --jq '.total_count')" == "1" ]]
+  [[ "$(gh api "repos/${REPO}/environments/${environment}/deployment-branch-policies?per_page=100" --jq '[.branch_policies[] | select(.name == "main" and ((.type // "branch") == "branch"))] | length')" == "1" ]]
+}
+
+# Both credential access and stable-release mutation are protected server-side.
+# Reset custom policies to exactly one main-branch rule, making the helper idempotent.
+configure_main_only_environment "$SIGNING_ENVIRONMENT"
+configure_main_only_environment "$RELEASE_ENVIRONMENT"
 
 # Post-configuration verification is intentionally fatal. Do not print a success
 # message when GitHub rejected or partially applied a hardening setting.
@@ -97,9 +113,7 @@ gh api --method POST \
 [[ "$(gh api "repos/${REPO}/branches/main/protection" --jq '.required_status_checks.strict')" == "true" ]]
 [[ "$(gh api "repos/${REPO}/branches/main/protection" --jq '[.required_status_checks.contexts[] | select(. == "required")] | length')" == "1" ]]
 
-[[ "$(gh api "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}" --jq '.deployment_branch_policy.protected_branches')" == "false" ]]
-[[ "$(gh api "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}" --jq '.deployment_branch_policy.custom_branch_policies')" == "true" ]]
-[[ "$(gh api "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}/deployment-branch-policies?per_page=100" --jq '.total_count')" == "1" ]]
-[[ "$(gh api "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}/deployment-branch-policies?per_page=100" --jq '[.branch_policies[] | select(.name == "main" and ((.type // "branch") == "branch"))] | length')" == "1" ]]
+verify_main_only_environment "$SIGNING_ENVIRONMENT"
+verify_main_only_environment "$RELEASE_ENVIRONMENT"
 
-echo "Repository settings, main protection, and ${SIGNING_ENVIRONMENT} main-only policy verified."
+echo "Repository settings, main protection, ${SIGNING_ENVIRONMENT}, and ${RELEASE_ENVIRONMENT} main-only policies verified."
