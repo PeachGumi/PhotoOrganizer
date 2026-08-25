@@ -5,8 +5,17 @@ public sealed record MediaScanResult(IReadOnlyList<string> Files, IReadOnlyList<
     public bool IsComplete => Errors.Count == 0;
 }
 
-public sealed class MediaScanner(MediaClassifier classifier)
+public sealed class MediaScanner
 {
+    private readonly MediaClassifier _classifier;
+    private readonly IStorageVolumeProvider? _volumeProvider;
+
+    public MediaScanner(MediaClassifier classifier, IStorageVolumeProvider? volumeProvider = null)
+    {
+        _classifier = classifier;
+        _volumeProvider = volumeProvider;
+    }
+
     public MediaScanResult Scan(string root)
     {
         var files = new List<string>();
@@ -17,8 +26,19 @@ public sealed class MediaScanner(MediaClassifier classifier)
             return new MediaScanResult([], ["Scan root does not exist or is not a directory."]);
         }
 
+        var scanRoot = Path.GetFullPath(root);
+        VolumeTraversalGuard guard;
+        try
+        {
+            guard = VolumeTraversalGuard.Create(scanRoot, _volumeProvider);
+        }
+        catch (Exception ex)
+        {
+            return new MediaScanResult([], [$"Unable to establish scan volume boundary: {ex.Message}"]);
+        }
+
         var stack = new Stack<string>();
-        stack.Push(Path.GetFullPath(root));
+        stack.Push(scanRoot);
 
         while (stack.Count > 0)
         {
@@ -52,11 +72,16 @@ public sealed class MediaScanner(MediaClassifier classifier)
                             continue;
                         }
 
+                        if (guard.IsNestedMountedVolume(entry.FullName))
+                        {
+                            continue;
+                        }
+
                         stack.Push(entry.FullName);
                         continue;
                     }
 
-                    if (entry is not FileInfo file || !classifier.IsSupported(file.FullName))
+                    if (entry is not FileInfo file || !_classifier.IsSupported(file.FullName))
                     {
                         continue;
                     }
