@@ -251,6 +251,43 @@ jobs:
           bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/app-icon.ico "$app_icon"
           test -s "$app_icon"
 
+          create_dmg_with_retry() {
+            local stage="$1"
+            local output="$2"
+            local volume_name="$3"
+            local attempt
+
+            rm -f "$output"
+            for attempt in 1 2 3; do
+              if hdiutil create \
+                -volname "$volume_name" \
+                -srcfolder "$stage" \
+                -ov -format UDZO "$output"; then
+                return 0
+              fi
+              rm -f "$output"
+              sleep "$attempt"
+            done
+
+            echo "::error::Unable to create DMG after 3 attempts: $output"
+            return 1
+          }
+
+          verify_dmg_with_retry() {
+            local image="$1"
+            local attempt
+
+            for attempt in 1 2 3; do
+              if hdiutil verify "$image"; then
+                return 0
+              fi
+              sleep "$attempt"
+            done
+
+            echo "::error::Unable to verify DMG after 3 attempts: $image"
+            return 1
+          }
+
           for arch in arm64 x64; do
             rid="osx-$arch"
             publish="$PWD/build/$rid/publish"
@@ -336,11 +373,8 @@ jobs:
             cp LICENSE "$dmg_stage/LICENSE.txt"
 
             dmg="$PWD/release-assets/PhotoOrganizer-macOS-$arch-$VERSION.dmg"
-            hdiutil create \
-              -volname "Photo Organizer" \
-              -srcfolder "$dmg_stage" \
-              -ov -format UDZO "$dmg"
-            hdiutil verify "$dmg"
+            create_dmg_with_retry "$dmg_stage" "$dmg" "Photo Organizer"
+            verify_dmg_with_retry "$dmg"
             codesign --force --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$dmg"
             codesign --verify --verbose=2 "$dmg"
             xcrun notarytool submit "$dmg" \
