@@ -1,6 +1,8 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:PhotoOrganizer.App"
         x:Class="PhotoOrganizer.App.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
         Title="Photo Organizer"
         Width="920"
         Height="760"
@@ -19,7 +21,7 @@
         <TextBox Grid.Row="0" Grid.Column="1"
                  Text="{Binding DestinationPath, Mode=TwoWay}"
                  IsEnabled="{Binding !IsBusy}"
-                 Watermark="写真ライブラリの保存先" />
+                 PlaceholderText="写真ライブラリの保存先" />
         <Button Grid.Row="0" Grid.Column="2" Content="選択..." Click="SelectDestination_Click"
                 IsEnabled="{Binding !IsBusy}" />
 
@@ -27,13 +29,13 @@
         <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
                  Text="{Binding EventName, Mode=TwoWay}"
                  IsEnabled="{Binding !IsBusy}"
-                 Watermark="例: 旅行、運動会、撮影会" />
+                 PlaceholderText="例: 旅行、運動会、撮影会" />
 
         <TextBlock Grid.Row="2" Grid.Column="0" Text="選択中のSD" VerticalAlignment="Center" />
         <TextBox Grid.Row="2" Grid.Column="1"
                  Text="{Binding SelectedSdPath}"
                  IsReadOnly="True"
-                 Watermark="カメラカード未選択" />
+                 PlaceholderText="カメラカード未選択" />
         <Button Grid.Row="2" Grid.Column="2" Content="SDカード選択" Click="SelectSd_Click"
                 IsEnabled="{Binding !IsBusy}" />
 
@@ -51,7 +53,7 @@
         <TextBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
                  Text="{Binding RawExtensionsText, Mode=TwoWay}"
                  IsEnabled="{Binding !IsBusy}"
-                 Watermark=".arw, .cr3, .nef, ..." />
+                 PlaceholderText=".arw, .cr3, .nef, ..." />
 
         <TextBlock Grid.Row="1" Grid.Column="0" Text="起動設定" VerticalAlignment="Center" />
         <CheckBox Grid.Row="1" Grid.Column="1"
@@ -96,8 +98,8 @@
              IsReadOnly="True"
              AcceptsReturn="True"
              TextWrapping="NoWrap"
-             VerticalScrollBarVisibility="Auto"
-             HorizontalScrollBarVisibility="Auto"
+             ScrollViewer.VerticalScrollBarVisibility="Auto"
+             ScrollViewer.HorizontalScrollBarVisibility="Auto"
              FontFamily="monospace" />
   </Grid>
 </Window>
