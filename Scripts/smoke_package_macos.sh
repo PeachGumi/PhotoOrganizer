@@ -13,16 +13,40 @@ else
   cleanup_root=0
 fi
 
-cleanup() {
+detach_if_needed() {
   if [[ -n "$mounted_device" ]]; then
-    hdiutil detach "$mounted_device" >/dev/null 2>&1 || true
+    hdiutil detach "$mounted_device" >/dev/null 2>&1 || hdiutil detach -force "$mounted_device" >/dev/null 2>&1 || true
     mounted_device=""
   fi
+}
+
+cleanup() {
+  detach_if_needed
   if [[ "$cleanup_root" -eq 1 ]]; then
     rm -rf "$OUTPUT_ROOT"
   fi
 }
 trap cleanup EXIT
+
+create_dmg() {
+  local stage="$1"
+  local output="$2"
+  local volume_name="$3"
+  local attempt
+
+  rm -f "$output"
+  for attempt in 1 2 3; do
+    if hdiutil create -volname "$volume_name" -srcfolder "$stage" -ov -format UDZO "$output" >/dev/null; then
+      return 0
+    fi
+    rm -f "$output"
+    # diskimages-helper can take a moment to release the previous image device.
+    sleep "$attempt"
+  done
+
+  echo "Unable to create DMG after 3 attempts: $output" >&2
+  return 1
+}
 
 icon="$OUTPUT_ROOT/PhotoOrganizer.icns"
 bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/app-icon.ico "$icon"
@@ -96,10 +120,7 @@ PLIST
   ln -s /Applications "$dmg_stage/Applications"
   cp LICENSE "$dmg_stage/LICENSE.txt"
 
-  hdiutil create \
-    -volname "Photo Organizer Smoke $arch" \
-    -srcfolder "$dmg_stage" \
-    -ov -format UDZO "$dmg" >/dev/null
+  create_dmg "$dmg_stage" "$dmg" "Photo Organizer Smoke $arch"
   test -s "$dmg"
   hdiutil verify "$dmg" >/dev/null
 
@@ -109,19 +130,33 @@ PLIST
   hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point" -plist > "$attach_plist"
   mounted_device="$(python3 - "$attach_plist" "$mount_point" <<'PY'
 import plistlib
+import re
 import sys
 from pathlib import Path
 
 payload = plistlib.loads(Path(sys.argv[1]).read_bytes())
 target = str(Path(sys.argv[2]).resolve())
+mounted = None
+all_devices = []
 for entity in payload.get("system-entities", []):
-    mount = entity.get("mount-point")
     device = entity.get("dev-entry")
+    if device:
+        all_devices.append(device)
+    mount = entity.get("mount-point")
     if mount and device and str(Path(mount).resolve()) == target:
-        print(device)
-        break
-else:
+        mounted = device
+
+if not mounted:
     raise SystemExit("Unable to resolve mounted DMG device from hdiutil plist")
+
+match = re.match(r"^(/dev/disk\d+)", mounted)
+whole = match.group(1) if match else mounted
+if all_devices and whole not in all_devices:
+    # Prefer an explicit whole-disk entity from the attach result when present.
+    candidates = [d for d in all_devices if re.fullmatch(r"/dev/disk\d+", d)]
+    if candidates:
+        whole = candidates[0]
+print(whole)
 PY
 )"
   test -n "$mounted_device"
@@ -131,6 +166,7 @@ PY
   test -s "$mount_point/Photo Organizer.app/Contents/Resources/PhotoOrganizer.icns"
   hdiutil detach "$mounted_device" >/dev/null
   mounted_device=""
+  rmdir "$mount_point" 2>/dev/null || true
 
   hash="$(shasum -a 256 "$dmg" | awk '{print $1}')"
   [[ "$hash" =~ ^[0-9a-f]{64}$ ]]
