@@ -189,17 +189,17 @@ public sealed class StorageSessionTracker
     public event Action<string>? VolumeMounted;
     public event Action<string>? VolumeRemoved;
 
-    public void Refresh()
+    public void Refresh() => _ = RefreshAndGetSnapshot();
+
+    private Dictionary<string, MountedVolumeInfo> RefreshAndGetSnapshot()
     {
+        var comparer = _provider.PathComparison == StringComparison.OrdinalIgnoreCase
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
         var mounted = _provider.GetMountedVolumes()
             .Where(v => !string.IsNullOrWhiteSpace(v.RootPath) && !string.IsNullOrWhiteSpace(v.Fingerprint))
             .Select(v => v with { RootPath = PathSafety.Normalize(v.RootPath) })
-            .ToDictionary(
-                v => v.RootPath,
-                v => v,
-                _provider.PathComparison == StringComparison.OrdinalIgnoreCase
-                    ? StringComparer.OrdinalIgnoreCase
-                    : StringComparer.Ordinal);
+            .ToDictionary(v => v.RootPath, v => v, comparer);
 
         List<string> removed = [];
         List<string> added = [];
@@ -233,6 +233,7 @@ public sealed class StorageSessionTracker
 
         foreach (var root in removed) VolumeRemoved?.Invoke(root);
         foreach (var root in added) VolumeMounted?.Invoke(root);
+        return mounted;
     }
 
     public void MarkRemoved(string rootPath)
@@ -251,12 +252,28 @@ public sealed class StorageSessionTracker
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
         if (!PathSafety.TryValidateDirectFilesystemPath(path, out _)) return null;
-        Refresh();
 
-        var volume = _provider.ResolveVolumeForPath(path);
+        string normalizedPath;
+        try
+        {
+            normalizedPath = PathSafety.Normalize(path);
+        }
+        catch
+        {
+            return null;
+        }
+
+        // Resolve the path from the exact same mounted-volume snapshot that refreshed
+        // the process-local sessions. This avoids both a second expensive platform
+        // enumeration and a split-brain result from two different mount snapshots.
+        var mounted = RefreshAndGetSnapshot();
+        var volume = mounted.Values
+            .Where(v => PathSafety.IsSameOrDescendant(normalizedPath, v.RootPath, _provider.PathComparison))
+            .OrderByDescending(v => v.RootPath.Length)
+            .FirstOrDefault();
         if (volume is null || string.IsNullOrWhiteSpace(volume.Fingerprint)) return null;
 
-        var root = PathSafety.Normalize(volume.RootPath);
+        var root = volume.RootPath;
         lock (_gate)
         {
             if (!_sessions.TryGetValue(root, out var entry)) return null;
