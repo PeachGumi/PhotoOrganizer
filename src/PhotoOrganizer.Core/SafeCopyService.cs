@@ -12,6 +12,12 @@ public sealed record CopyResult(CopyStatus Status, string? DestinationPath, stri
 public sealed class SafeCopyService
 {
     private const int BufferSize = 4 * 1024 * 1024;
+    private readonly IDurableFileCommitter _durableCommitter;
+
+    public SafeCopyService(IDurableFileCommitter? durableCommitter = null)
+    {
+        _durableCommitter = durableCommitter ?? new PlatformDurableFileCommitter();
+    }
 
     public async Task<CopyResult> CopyAsync(
         string sourcePath,
@@ -115,34 +121,36 @@ public sealed class SafeCopyService
                 return new CopyResult(CopyStatus.Failed, null, $"Destination path changed before finalization: {pathError}");
             }
 
+            // Apply metadata before the durable move so no application metadata write
+            // occurs after the platform-specific commit barrier.
+            File.SetLastWriteTimeUtc(transactionTemporaryPath, sourceLastWriteUtc);
+
             var finalPath = resolution.Path;
             while (true)
             {
-                try
+                var commitStatus = _durableCommitter.CommitNoReplace(transactionTemporaryPath, finalPath);
+                if (commitStatus == DurableCommitStatus.Committed)
                 {
-                    File.Move(transactionTemporaryPath, finalPath, overwrite: false);
                     temporaryPathForCleanup = null;
                     break;
                 }
-                catch (IOException) when (File.Exists(finalPath))
+
+                // Another writer won the destination name between resolution and
+                // finalization. Never replace it; re-resolve against its real bytes.
+                resolution = await ResolveDestinationAsync(
+                    sourcePath,
+                    destinationDirectory,
+                    sourceSize,
+                    sourceHashBefore,
+                    cancellationToken).ConfigureAwait(false);
+
+                if (resolution.IsDuplicate)
                 {
-                    resolution = await ResolveDestinationAsync(
-                        sourcePath,
-                        destinationDirectory,
-                        sourceSize,
-                        sourceHashBefore,
-                        cancellationToken).ConfigureAwait(false);
-
-                    if (resolution.IsDuplicate)
-                    {
-                        return new CopyResult(CopyStatus.SkippedDuplicate, resolution.Path);
-                    }
-
-                    finalPath = resolution.Path;
+                    return new CopyResult(CopyStatus.SkippedDuplicate, resolution.Path);
                 }
-            }
 
-            File.SetLastWriteTimeUtc(finalPath, sourceLastWriteUtc);
+                finalPath = resolution.Path;
+            }
 
             var finalInfo = new FileInfo(finalPath);
             if (finalInfo.Length != sourceSize)
