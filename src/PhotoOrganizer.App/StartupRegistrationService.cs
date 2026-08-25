@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security;
 using Microsoft.Win32;
@@ -109,19 +110,20 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
         var directory = Path.GetDirectoryName(plistPath)!;
         Directory.CreateDirectory(directory);
         var escapedExecutable = SecurityElement.Escape(executable) ?? executable;
-        var plist = $"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>{MacLabel}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>{escapedExecutable}</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-</dict>
-</plist>
-""";
+        var plist = string.Join('\n',
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+            "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">",
+            "<plist version=\"1.0\">",
+            "<dict>",
+            $"  <key>Label</key><string>{MacLabel}</string>",
+            "  <key>ProgramArguments</key>",
+            "  <array>",
+            $"    <string>{escapedExecutable}</string>",
+            "  </array>",
+            "  <key>RunAtLoad</key><true/>",
+            "</dict>",
+            "</plist>",
+            string.Empty);
 
         var temporary = plistPath + ".tmp-" + Guid.NewGuid().ToString("N");
         File.WriteAllText(temporary, plist);
