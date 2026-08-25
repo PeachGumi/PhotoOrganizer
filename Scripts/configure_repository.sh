@@ -4,7 +4,7 @@ set -euo pipefail
 REPO="${1:-PeachGumi/PhotoOrganizer}"
 SIGNING_ENVIRONMENT="production-signing"
 RELEASE_ENVIRONMENT="production-release"
-DESCRIPTION='SDカードの写真・動画をWindows / macOSへ安全に取り込み、日付・イベント単位で整理。SHA-256検証と永続化確認後にSDカード再利用可否を判定する写真整理アプリ。'
+DESCRIPTION='SDカードの写真や動画をWindows / macOSへ安全に取り込み、撮影日とイベントごとに整理するアプリ。コピー後の実データ検証と書き込み完了確認を行い、SDカードを再利用できる状態かどうかまで判定します。'
 
 command -v gh >/dev/null 2>&1 || { echo "GitHub CLI (gh) is required." >&2; exit 1; }
 gh auth status >/dev/null
