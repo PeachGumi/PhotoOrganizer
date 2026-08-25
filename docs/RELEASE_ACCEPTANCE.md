@@ -19,9 +19,11 @@ A workflow success is necessary but not sufficient for a production-ready Photo 
 
 - [ ] Windows x64 package launches on a clean supported x64 Windows machine without a .NET runtime preinstall.
 - [ ] Windows arm64 package launches on a clean supported ARM64 Windows machine when hardware is available.
+- [ ] Windows Explorer, taskbar, and the main application window show the Photo Organizer product icon rather than a generic executable/window icon.
 - [ ] Record SmartScreen behavior; investigate unexpected unsigned/unrecognized-publisher warnings. New-certificate reputation warnings must not be confused with signature failure.
 - [ ] macOS arm64 DMG opens and app launches on Apple Silicon with Gatekeeper enabled.
 - [ ] macOS x64 DMG opens and app launches on Intel macOS when hardware is available.
+- [ ] macOS Finder and Dock show the Photo Organizer product icon from the signed app bundle rather than a generic application icon.
 - [ ] Windows shows a usable tray icon/menu and macOS shows a usable menu-bar item/menu.
 - [ ] Closing the main window while idle hides it but leaves camera-card monitoring active.
 - [ ] Tray/menu-bar `Photo Organizerを表示` restores and activates the workflow window.
