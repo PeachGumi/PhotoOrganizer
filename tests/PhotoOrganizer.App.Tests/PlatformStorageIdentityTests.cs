@@ -21,4 +21,21 @@ public sealed class PlatformStorageIdentityTests
             string.IsNullOrWhiteSpace(volume.PhysicalDeviceFingerprint),
             $"Physical-device identity is missing for {path} on {Environment.OSVersion}.");
     }
+
+    [TestMethod]
+    public void SystemVolume_RepeatedResolutionKeepsSameIdentity()
+    {
+        var provider = new PlatformStorageVolumeProvider();
+        var path = OperatingSystem.IsWindows()
+            ? Path.GetPathRoot(Environment.SystemDirectory)!
+            : "/";
+
+        var first = provider.ResolveVolumeForPath(path);
+        var second = provider.ResolveVolumeForPath(path);
+
+        Assert.IsNotNull(first);
+        Assert.IsNotNull(second);
+        Assert.AreEqual(first.Fingerprint, second.Fingerprint);
+        Assert.AreEqual(first.PhysicalDeviceFingerprint, second.PhysicalDeviceFingerprint);
+    }
 }
