@@ -1,4 +1,5 @@
 using PhotoOrganizer.Core;
+using Xunit;
 
 namespace PhotoOrganizer.Core.Tests;
 
