@@ -4,17 +4,12 @@ using System.Management;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
-using System.Xml.Linq;
 using PhotoOrganizer.Core;
 
 namespace PhotoOrganizer.App;
 
 public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
 {
-    private sealed record MacStorageIdentity(
-        string VolumeFingerprint,
-        string? PhysicalDeviceFingerprint);
-
     public StringComparison PathComparison => OperatingSystem.IsWindows()
         ? StringComparison.OrdinalIgnoreCase
         : StringComparison.Ordinal;
@@ -61,7 +56,7 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
                 }
                 else if (OperatingSystem.IsMacOS())
                 {
-                    // diskutil already exposes both persistent volume identity and the
+                    // diskutil exposes both persistent volume identity and the
                     // containing whole-disk identity. Resolve them together so a safety
                     // refresh never launches a second subprocess for the same volume.
                     var identity = TryGetMacStorageIdentity(root);
@@ -212,72 +207,13 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
             _ = stderr.GetAwaiter().GetResult();
             if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output)) return null;
 
-            var document = XDocument.Parse(output, LoadOptions.None);
-            var dictionary = document.Root?.Elements().FirstOrDefault(element => element.Name.LocalName == "dict");
-            if (dictionary is null) return null;
-
-            // Prefer a persistent filesystem/partition identity. DeviceIdentifier is
-            // only a last-resort fallback because BSD disk numbers are ephemeral.
-            var persistentVolumeId = FirstNonEmpty(
-                GetPlistString(dictionary, "VolumeUUID"),
-                GetPlistString(dictionary, "APFSVolumeUUID"),
-                GetPlistString(dictionary, "DiskUUID"),
-                GetPlistString(dictionary, "MediaUUID"));
-            var deviceIdentifier = GetPlistString(dictionary, "DeviceIdentifier");
-            var volumeIdentity = FirstNonEmpty(persistentVolumeId, deviceIdentifier);
-            if (string.IsNullOrWhiteSpace(volumeIdentity)) return null;
-
-            var parentWholeDisk = GetPlistString(dictionary, "ParentWholeDisk");
-            var wholeDisk = GetPlistBoolean(dictionary, "WholeDisk") == true
-                ? deviceIdentifier
-                : null;
-            var physicalIdentity = FirstNonEmpty(parentWholeDisk, wholeDisk);
-
-            return new MacStorageIdentity(
-                "mac-volume:" + volumeIdentity,
-                string.IsNullOrWhiteSpace(physicalIdentity)
-                    ? null
-                    : "mac-whole-disk:" + physicalIdentity);
+            return MacDiskutilInfoParser.Parse(output);
         }
         catch
         {
             // Storage identity is a safety signal. Callers fail closed when unavailable.
             return null;
         }
-    }
-
-    private static string? FirstNonEmpty(params string?[] values) =>
-        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
-
-    private static string? GetPlistString(XElement dictionary, string key)
-    {
-        var elements = dictionary.Elements().ToArray();
-        for (var index = 0; index + 1 < elements.Length; index++)
-        {
-            if (elements[index].Name.LocalName != "key" || elements[index].Value != key) continue;
-            return elements[index + 1].Name.LocalName == "string"
-                ? elements[index + 1].Value
-                : null;
-        }
-
-        return null;
-    }
-
-    private static bool? GetPlistBoolean(XElement dictionary, string key)
-    {
-        var elements = dictionary.Elements().ToArray();
-        for (var index = 0; index + 1 < elements.Length; index++)
-        {
-            if (elements[index].Name.LocalName != "key" || elements[index].Value != key) continue;
-            return elements[index + 1].Name.LocalName switch
-            {
-                "true" => true,
-                "false" => false,
-                _ => null
-            };
-        }
-
-        return null;
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
