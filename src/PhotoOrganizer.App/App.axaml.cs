@@ -30,8 +30,14 @@ public sealed partial class App : Application
         {
             _storageMonitor = new StorageMonitor(StorageSessions);
             _storageMonitor.Start();
-            desktop.Exit += (_, _) => _storageMonitor.Dispose();
-            desktop.MainWindow = new MainWindow();
+
+            var viewModel = new MainWindowViewModel(
+                StorageProvider,
+                StorageSessions,
+                CameraCardRoots);
+
+            desktop.MainWindow = new MainWindow(viewModel);
+            desktop.Exit += (_, _) => _storageMonitor?.Dispose();
         }
 
         base.OnFrameworkInitializationCompleted();
