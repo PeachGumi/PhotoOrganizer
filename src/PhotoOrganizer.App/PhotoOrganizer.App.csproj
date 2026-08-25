@@ -13,6 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
     <ProjectReference Include="../PhotoOrganizer.Core/PhotoOrganizer.Core.csproj" />
   </ItemGroup>
 </Project>
