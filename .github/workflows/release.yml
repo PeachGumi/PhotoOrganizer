@@ -369,7 +369,7 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/photo-organizer-signing.keychain-db" 2>/dev/null || true
 
   publish:
-    name: Publish complete cross-platform release
+    name: Publish complete cross-platform acceptance candidate
     needs: [preflight, windows, macos]
     runs-on: ubuntu-latest
     env:
@@ -401,7 +401,7 @@ jobs:
             sha256sum -c "$artifact.sha256"
           done
 
-      - name: Publish GitHub Release only after both platforms succeeded
+      - name: Publish prerelease acceptance candidate only after both platforms succeeded
         shell: bash
         run: |
           set -euo pipefail
@@ -412,6 +412,6 @@ jobs:
           gh release create "$RELEASE_TAG" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Photo Organizer $VERSION" \
+            --title "Photo Organizer $VERSION — acceptance candidate" \
             --generate-notes \
-            --latest
+            --prerelease
