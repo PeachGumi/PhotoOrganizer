@@ -1,6 +1,6 @@
 # Production release
 
-Photo Organizer publishes one version for Windows and macOS from one exact commit. Release is intentionally fail-closed: if any required signing credential or platform build fails, no candidate is published. A signed CI candidate is still **not** a production-ready stable release until the real-device acceptance checklist passes and a separate promotion workflow records that approval.
+Photo Organizer publishes one version for Windows and macOS from one exact `main` commit. Release is intentionally fail-closed: if the protected signing environment, any required signing credential, or either platform build fails, no candidate is published. A signed CI candidate is still **not** a production-ready stable release until the real-device acceptance checklist passes and a separate promotion workflow records that approval.
 
 ## Canonical artifacts
 
@@ -16,7 +16,21 @@ Windows packages are self-contained .NET applications. The Photo Organizer execu
 
 macOS packages contain a self-contained Avalonia `.app`. Mach-O components and the app are signed with Developer ID Application and Hardened Runtime. The app and DMG are notarized with `notarytool`, stapled, and verified with `codesign`, `stapler`, and Gatekeeper (`spctl`). Apple Silicon and Intel are released separately because a self-contained .NET application contains architecture-specific runtime files; merely using `lipo` on the app host would not make the entire runtime universal.
 
-## Required GitHub Actions secrets
+## Protected production-signing environment
+
+Production signing credentials are **environment secrets**, not repository-wide Actions secrets. The repository hardening helper creates a GitHub Environment named `production-signing` and resets its deployment policy to exactly one allowed branch: `main`.
+
+Run this first from an authenticated administrator checkout:
+
+```bash
+bash Scripts/configure_repository.sh
+```
+
+The helper also configures and verifies `main` protection and a read-only default `GITHUB_TOKEN`. If any required hardening check does not match after the API calls, the helper exits non-zero instead of printing a false success message.
+
+GitHub only makes environment secrets available to jobs that reference that environment and satisfy its protection rules. Consequently, a release workflow copied or modified on a release branch/tag cannot obtain the production signing secrets from `production-signing`.
+
+## Required `production-signing` environment secrets
 
 Windows:
 
@@ -32,19 +46,34 @@ macOS:
 - `APPLE_TEAM_ID`
 - `APPLE_APP_SPECIFIC_PASSWORD`
 
-Do not commit any certificate, private key, password, or app-specific password. On a trusted local machine, `bash Scripts/configure_release_secrets.sh` sends values to `gh secret set` through stdin without deliberately printing the values.
+Do not commit any certificate, private key, password, or app-specific password. On a trusted local machine, run:
+
+```bash
+bash Scripts/configure_release_secrets.sh
+```
+
+The script refuses to accept credentials unless `production-signing` already has the verified main-only deployment policy. It sends the values through stdin to `gh secret set --env production-signing`, verifies that every environment-secret name exists, and only then removes legacy repository-level copies of the same signing-secret names. Secret values are not deliberately printed.
+
+If an older setup used repository-level signing secrets, rerunning this helper performs that migration after the protected environment has been configured.
 
 ## Stage 1 — signed acceptance candidate
 
-1. Ensure `main` CI and CodeQL are green and no unresolved code blocker remains.
-2. Configure all signing secrets.
-3. Create or fast-forward `release/vX.Y.Z` to the exact approved `main` commit, or push tag `vX.Y.Z`.
-4. The `Signing preflight` job validates the semantic version and requires every Windows and Apple signing secret before platform release jobs run.
-5. Windows and macOS independently run the shared safety tests from the same commit, produce signed packages, verify signatures, and upload short-lived workflow artifacts.
-6. Only after both platform jobs succeed does the publish job download the complete set, verify every SHA-256 checksum, and create a **GitHub Prerelease acceptance candidate**.
-7. The candidate is intentionally not marked Latest or stable. Use these exact candidate bytes for clean-machine and real-camera-card acceptance.
+1. Ensure the exact `main` commit has green `required` CI and CodeQL and no unresolved code blocker remains.
+2. Run `Scripts/configure_repository.sh` and verify that `main` protection plus the `production-signing` main-only environment policy succeed.
+3. Configure all signing credentials with `Scripts/configure_release_secrets.sh`.
+4. Manually dispatch `.github/workflows/release.yml` **from `main`** with the desired `vMAJOR.MINOR.PATCH` input. For example:
 
-The release workflow must never promote its own output to stable. This separation prevents a successful signing/build run from being mistaken for evidence that the real workflow is safe on physical machines and cards.
+   ```bash
+   gh workflow run release.yml --repo PeachGumi/PhotoOrganizer --ref main -f version=v1.0.0
+   ```
+
+5. The unprivileged preflight rejects any ref other than `refs/heads/main` and validates the semantic version.
+6. A `production-signing` environment job requires every Windows and Apple credential before signed platform work begins. Windows and macOS signing jobs also reference the protected environment.
+7. Windows and macOS independently run the shared safety tests from the same exact main commit, produce signed packages, verify signatures, and upload short-lived workflow artifacts.
+8. Only after both platform jobs succeed does the protected publish job download the complete set, verify every SHA-256 checksum, reject an already-existing release **or tag**, and create a new **GitHub Prerelease acceptance candidate** whose tag targets that exact main commit.
+9. The candidate is intentionally not marked Latest or stable. Use these exact candidate bytes for clean-machine and real-camera-card acceptance.
+
+The release workflow has no push/tag/release-branch trigger. The candidate tag is created by the final publish job only after the complete signed artifact set has passed verification. The release workflow must never promote its own output to stable.
 
 ## Stage 2 — explicit stable promotion
 
@@ -77,7 +106,9 @@ None of the following is sufficient on its own:
 - an unsigned local build;
 - only one platform succeeding;
 - a prerelease candidate that has not completed the real-device checklist;
-- a release whose accepted commit or evidence record cannot be identified.
+- a release whose accepted commit or evidence record cannot be identified;
+- a release run from any ref other than `main`;
+- credentials left only as repository-level secrets rather than in the protected `production-signing` environment.
 
 ## SmartScreen and Gatekeeper
 
