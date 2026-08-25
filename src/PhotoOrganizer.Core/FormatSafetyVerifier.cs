@@ -59,10 +59,9 @@ public sealed class FormatSafetyVerifier
         var errors = new List<string>();
         var verified = 0;
 
-        // This cache exists only for this one *fresh* verification invocation. It
-        // prevents rereading a destination candidate for multiple source files but
-        // is discarded immediately afterward. A later reuse decision always hashes
-        // destination bytes again from disk.
+        // This cache exists only for this one fresh verification invocation. It is
+        // a prefilter/hint only: a candidate that appears to match must still be
+        // durably synchronized and then hashed again before it can authorize reuse.
         var destinationHashCache = new Dictionary<string, string>(PathComparer.Instance);
 
         foreach (var source in supported)
@@ -111,12 +110,26 @@ public sealed class FormatSafetyVerifier
                         }
 
                         // A cache-readable SHA match is not sufficient for SD reuse.
-                        // Force the matched independent destination copy to durable
-                        // storage before allowing it to count as verified.
+                        // Synchronize the matched independent destination first.
                         var durability = _durability.EnsureDurable(candidate);
                         if (!durability.Success)
                         {
                             errors.Add($"{candidate}: {durability.Error ?? "durable destination commit failed"}");
+                            continue;
+                        }
+
+                        // Hash again *after* durable synchronization. Another process
+                        // may have replaced or modified the candidate between the first
+                        // hash handle closing and the durability handle opening. The
+                        // earlier hash is therefore only a prefilter, never final proof.
+                        var postDurabilityHash = await _hasher
+                            .Sha256Async(candidate, cancellationToken)
+                            .ConfigureAwait(false);
+                        destinationHashCache[candidate] = postDurabilityHash;
+
+                        if (!string.Equals(sourceHash, postDurabilityHash, StringComparison.Ordinal))
+                        {
+                            errors.Add($"{candidate}: destination bytes changed during durable verification.");
                             continue;
                         }
 
