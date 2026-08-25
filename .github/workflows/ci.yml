@@ -35,10 +35,10 @@ jobs:
         run: dotnet --info
 
       - name: Restore tests
-        run: dotnet restore tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj --locked-mode false
+        run: dotnet restore tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj
 
       - name: Restore app
-        run: dotnet restore src/PhotoOrganizer.App/PhotoOrganizer.App.csproj --locked-mode false
+        run: dotnet restore src/PhotoOrganizer.App/PhotoOrganizer.App.csproj
 
       - name: Run shared safety tests
         run: dotnet test tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj --configuration Release --no-restore
