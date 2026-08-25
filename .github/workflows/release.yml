@@ -1,0 +1,417 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - 'release/v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag (for example v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_VERSION: 10.0.400
+
+jobs:
+  preflight:
+    name: Signing preflight
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      version: ${{ steps.version.outputs.version }}
+    env:
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+    steps:
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            RELEASE_TAG="$GITHUB_REF_NAME"
+          elif [[ "$GITHUB_REF_NAME" == release/v* ]]; then
+            RELEASE_TAG="${GITHUB_REF_NAME#release/}"
+          else
+            RELEASE_TAG="${DISPATCH_VERSION:-}"
+          fi
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must match vMAJOR.MINOR.PATCH: $RELEASE_TAG"
+            exit 1
+          fi
+
+          VERSION="${RELEASE_TAG#v}"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release $RELEASE_TAG from exact commit $GITHUB_SHA"
+
+      - name: Require every production signing secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD \
+            MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD DEVELOPER_ID_APPLICATION \
+            APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing required repository secret: $name"
+              missing=1
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then
+            echo "::error::Production release aborted before any release artifact was built or published."
+            exit 1
+          fi
+
+  windows:
+    name: Signed Windows packages
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Run shared safety tests from release commit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj
+          dotnet test tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj --configuration Release --no-restore
+
+      - name: Decode Windows signing certificate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $encoded = ($env:WINDOWS_CERTIFICATE -replace '\s', '')
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\windows-signing.pfx", [Convert]::FromBase64String($encoded))
+
+      - name: Locate SignTool
+        id: signtool
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $tool) { throw 'signtool.exe was not found on the GitHub-hosted Windows runner.' }
+          "path=$($tool.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Publish, Authenticode-sign, verify and package Windows builds
+        shell: pwsh
+        env:
+          SIGNTOOL: ${{ steps.signtool.outputs.path }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+
+          foreach ($arch in @('x64', 'arm64')) {
+            $rid = "win-$arch"
+            $publish = "build\$rid\publish"
+            dotnet publish src/PhotoOrganizer.App/PhotoOrganizer.App.csproj `
+              --configuration Release `
+              --runtime $rid `
+              --self-contained true `
+              -p:Version=$env:VERSION `
+              -p:ContinuousIntegrationBuild=true `
+              --output $publish
+
+            foreach ($file in @(
+              "$publish\PhotoOrganizer.exe",
+              "$publish\PhotoOrganizer.dll",
+              "$publish\PhotoOrganizer.Core.dll"
+            )) {
+              if (-not (Test-Path $file)) { throw "Required release binary missing: $file" }
+              & $env:SIGNTOOL sign /f "$env:RUNNER_TEMP\windows-signing.pfx" `
+                /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+                /fd SHA256 `
+                /tr https://timestamp.digicert.com `
+                /td SHA256 `
+                /d "Photo Organizer" `
+                $file
+              if ($LASTEXITCODE -ne 0) { throw "Signing failed: $file" }
+              & $env:SIGNTOOL verify /pa /all /v $file
+              if ($LASTEXITCODE -ne 0) { throw "Signature verification failed: $file" }
+            }
+
+            Copy-Item LICENSE "$publish\LICENSE.txt"
+            $zip = "release-assets\PhotoOrganizer-Windows-$arch-$env:VERSION.zip"
+            if (Test-Path $zip) { Remove-Item $zip -Force }
+            Compress-Archive -Path "$publish\*" -DestinationPath $zip -CompressionLevel Optimal
+            $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+            $name = [IO.Path]::GetFileName($zip)
+            "$hash  $name" | Set-Content -NoNewline "$zip.sha256"
+          }
+
+      - name: Upload signed Windows release assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-release
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove Windows signing material
+        if: always()
+        shell: pwsh
+        run: Remove-Item "$env:RUNNER_TEMP\windows-signing.pfx" -Force -ErrorAction SilentlyContinue
+
+  macos:
+    name: Signed and notarized macOS packages
+    needs: preflight
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Run shared safety tests from release commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj
+          dotnet test tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj --configuration Release --no-restore
+          plutil -lint packaging/macos/PhotoOrganizer.entitlements
+
+      - name: Import Developer ID Application certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/photo-organizer-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          export CERTIFICATE_PATH KEYCHAIN_PATH
+
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+          encoded = "".join(os.environ["MACOS_CERTIFICATE"].split())
+          Path(os.environ["CERTIFICATE_PATH"]).write_bytes(base64.b64decode(encoded, validate=True))
+          PY
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -F "$DEVELOPER_ID_APPLICATION"
+
+      - name: Publish, sign, notarize and package native macOS builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets build
+
+          for arch in arm64 x64; do
+            rid="osx-$arch"
+            publish="$PWD/build/$rid/publish"
+            app="$PWD/build/$rid/Photo Organizer.app"
+            contents="$app/Contents"
+            macos="$contents/MacOS"
+            resources="$contents/Resources"
+
+            dotnet publish src/PhotoOrganizer.App/PhotoOrganizer.App.csproj \
+              --configuration Release \
+              --runtime "$rid" \
+              --self-contained true \
+              -p:Version="$VERSION" \
+              -p:ContinuousIntegrationBuild=true \
+              --output "$publish"
+
+            rm -rf "$app"
+            mkdir -p "$macos" "$resources"
+            ditto "$publish" "$macos"
+            chmod +x "$macos/PhotoOrganizer"
+            cp LICENSE "$resources/LICENSE.txt"
+
+            cat > "$contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
+            <key>CFBundleDisplayName</key><string>Photo Organizer</string>
+            <key>CFBundleExecutable</key><string>PhotoOrganizer</string>
+            <key>CFBundleIdentifier</key><string>com.peachgumi.photoorganizer</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleName</key><string>Photo Organizer</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>$VERSION</string>
+            <key>CFBundleVersion</key><string>${GITHUB_RUN_NUMBER}</string>
+            <key>LSMinimumSystemVersion</key><string>13.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+            plutil -lint "$contents/Info.plist"
+
+            main_executable="$macos/PhotoOrganizer"
+            while IFS= read -r -d '' candidate; do
+              if [[ "$candidate" == "$main_executable" ]]; then
+                continue
+              fi
+              if file "$candidate" | grep -q 'Mach-O'; then
+                codesign --force --timestamp --options runtime \
+                  --sign "$DEVELOPER_ID_APPLICATION" "$candidate"
+              fi
+            done < <(find "$app" -type f -print0)
+
+            codesign --force --timestamp --options runtime \
+              --entitlements packaging/macos/PhotoOrganizer.entitlements \
+              --sign "$DEVELOPER_ID_APPLICATION" "$main_executable"
+            codesign --force --timestamp --options runtime \
+              --entitlements packaging/macos/PhotoOrganizer.entitlements \
+              --sign "$DEVELOPER_ID_APPLICATION" "$app"
+            codesign --verify --deep --strict --verbose=2 "$app"
+            codesign -dv --verbose=4 "$app"
+
+            app_zip="$RUNNER_TEMP/PhotoOrganizer-$arch.zip"
+            ditto -c -k --keepParent "$app" "$app_zip"
+            xcrun notarytool submit "$app_zip" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --wait
+            xcrun stapler staple "$app"
+            xcrun stapler validate "$app"
+            spctl -a -t exec -vv "$app"
+
+            dmg_stage="$PWD/build/$rid/dmg"
+            rm -rf "$dmg_stage"
+            mkdir -p "$dmg_stage"
+            ditto "$app" "$dmg_stage/Photo Organizer.app"
+            ln -s /Applications "$dmg_stage/Applications"
+            cp LICENSE "$dmg_stage/LICENSE.txt"
+
+            dmg="$PWD/release-assets/PhotoOrganizer-macOS-$arch-$VERSION.dmg"
+            hdiutil create \
+              -volname "Photo Organizer" \
+              -srcfolder "$dmg_stage" \
+              -ov -format UDZO "$dmg"
+            hdiutil verify "$dmg"
+            codesign --force --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$dmg"
+            codesign --verify --verbose=2 "$dmg"
+            xcrun notarytool submit "$dmg" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --wait
+            xcrun stapler staple "$dmg"
+            xcrun stapler validate "$dmg"
+            spctl -a -t open --context context:primary-signature -vvv "$dmg"
+
+            (
+              cd release-assets
+              shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256"
+              shasum -a 256 -c "$(basename "$dmg").sha256"
+            )
+          done
+
+      - name: Upload signed macOS release assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-release
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove temporary Apple signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP"/PhotoOrganizer-*.zip
+          security delete-keychain "$RUNNER_TEMP/photo-organizer-signing.keychain-db" 2>/dev/null || true
+
+  publish:
+    name: Publish complete cross-platform release
+    needs: [preflight, windows, macos]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+      VERSION: ${{ needs.preflight.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download all signed platform artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: '*-release'
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify complete artifact set and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          required=(
+            "PhotoOrganizer-Windows-x64-$VERSION.zip"
+            "PhotoOrganizer-Windows-arm64-$VERSION.zip"
+            "PhotoOrganizer-macOS-arm64-$VERSION.dmg"
+            "PhotoOrganizer-macOS-x64-$VERSION.dmg"
+          )
+          for artifact in "${required[@]}"; do
+            test -s "$artifact" || { echo "::error::Missing release artifact: $artifact"; exit 1; }
+            test -s "$artifact.sha256" || { echo "::error::Missing checksum: $artifact.sha256"; exit 1; }
+            sha256sum -c "$artifact.sha256"
+          done
+
+      - name: Publish GitHub Release only after both platforms succeeded
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Release already exists: $RELEASE_TAG"
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Photo Organizer $VERSION" \
+            --generate-notes \
+            --latest
