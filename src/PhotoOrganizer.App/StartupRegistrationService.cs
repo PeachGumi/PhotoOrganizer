@@ -40,8 +40,9 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
     {
         try
         {
-            if (OperatingSystem.IsWindows()) return SetWindows(enabled, out error);
-            if (OperatingSystem.IsMacOS()) return SetMac(enabled, out error);
+            var startInBackground = enabled && new BackgroundPreferencesStore().Load().StartInBackground;
+            if (OperatingSystem.IsWindows()) return SetWindows(enabled, startInBackground, out error);
+            if (OperatingSystem.IsMacOS()) return SetMac(enabled, startInBackground, out error);
             error = "Login startup is not supported on this operating system.";
             return false;
         }
@@ -60,7 +61,7 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
     }
 
     [SupportedOSPlatform("windows")]
-    private static bool SetWindows(bool enabled, out string? error)
+    private static bool SetWindows(bool enabled, bool startInBackground, out string? error)
     {
         using var key = Registry.CurrentUser.CreateSubKey(WindowsRunKey, writable: true);
         if (key is null)
@@ -83,13 +84,14 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
             return false;
         }
 
-        key.SetValue(WindowsValueName, $"\"{executable}\"", RegistryValueKind.String);
+        var command = $"\"{executable}\"" + (startInBackground ? " --background" : string.Empty);
+        key.SetValue(WindowsValueName, command, RegistryValueKind.String);
         error = null;
         return true;
     }
 
     [SupportedOSPlatform("macos")]
-    private static bool SetMac(bool enabled, out string? error)
+    private static bool SetMac(bool enabled, bool startInBackground, out string? error)
     {
         var plistPath = GetMacPlistPath();
         if (!enabled)
@@ -110,6 +112,12 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
         var directory = Path.GetDirectoryName(plistPath)!;
         Directory.CreateDirectory(directory);
         var escapedExecutable = SecurityElement.Escape(executable) ?? executable;
+        var arguments = new List<string>
+        {
+            $"    <string>{escapedExecutable}</string>"
+        };
+        if (startInBackground) arguments.Add("    <string>--background</string>");
+
         var plist = string.Join('\n',
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
             "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">",
@@ -118,7 +126,7 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
             $"  <key>Label</key><string>{MacLabel}</string>",
             "  <key>ProgramArguments</key>",
             "  <array>",
-            $"    <string>{escapedExecutable}</string>",
+            string.Join('\n', arguments),
             "  </array>",
             "  <key>RunAtLoad</key><true/>",
             "</dict>",

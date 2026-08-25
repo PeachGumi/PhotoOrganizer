@@ -14,14 +14,24 @@ A workflow success is necessary but not sufficient for a production-ready Photo 
 - [ ] macOS DMG passes `stapler validate` and Gatekeeper assessment.
 - [ ] No unsigned substitute artifact is present in the Release.
 
-## Clean-machine install and launch
+## Clean-machine install, resident mode and launch
 
 - [ ] Windows x64 package launches on a clean supported x64 Windows machine without a .NET runtime preinstall.
 - [ ] Windows arm64 package launches on a clean supported ARM64 Windows machine when hardware is available.
 - [ ] Record SmartScreen behavior; investigate unexpected unsigned/unrecognized-publisher warnings. New-certificate reputation warnings must not be confused with signature failure.
 - [ ] macOS arm64 DMG opens and app launches on Apple Silicon with Gatekeeper enabled.
 - [ ] macOS x64 DMG opens and app launches on Intel macOS when hardware is available.
+- [ ] Windows shows a usable tray icon/menu and macOS shows a usable menu-bar item/menu.
+- [ ] Closing the main window while idle hides it but leaves camera-card monitoring active.
+- [ ] Tray/menu-bar `Photo Organizerを表示` restores and activates the workflow window.
+- [ ] Tray/menu-bar `終了` terminates the application while idle.
+- [ ] During an active import, normal window close, tray/menu-bar Quit, and platform graceful quit requests do not interrupt the import.
+- [ ] Enabling `バックグラウンド（トレイ/メニューバー）から開始` causes the next ordinary launch to start resident without flashing the main window.
+- [ ] Launching with `--background` also starts resident without flashing the main window.
+- [ ] An already-mounted or newly inserted valid camera card while resident automatically brings the workflow window forward.
+- [ ] Disabling background start causes the next ordinary launch to show the main window.
 - [ ] Login-startup enable/disable survives a real logout/login cycle on each tested platform.
+- [ ] When login auto-start and background start are both enabled, the registered startup command launches with `--background`; disabling background start rewrites the registration without the flag.
 - [ ] Application restart always returns SD reuse safety to an unverified state; a previous green state is never restored from settings.
 
 ## Real camera-card data safety
@@ -39,6 +49,7 @@ Use disposable/test media with independent ground-truth copies. Do not begin acc
 - [ ] Existing destination file with the same name but different bytes is preserved; imported data receives `_2`, `_3`, etc.
 - [ ] Same-name identical bytes are treated as an already-backed-up duplicate and no unnecessary collision copy is created.
 - [ ] Reusing a camera filename with the same size but different bytes is never mistaken for an old import.
+- [ ] If a supported file copy fails, the run remains blocked rather than silently declaring success; rerunning safely skips files already proven byte-identical and retries the remaining work under a fresh transaction.
 - [ ] Copy completion does not show the green reuse state before the post-import rescan and SHA-256 verification finish.
 - [ ] Green `保存先コピー検証済み — SDカード再利用可能` appears only after every currently supported file on the card has an independent destination size+SHA-256 match.
 
@@ -65,12 +76,14 @@ For every cycle:
 - [ ] Remove the destination during copy/final verification: operation fails closed; no reuse-safe state appears.
 - [ ] Cancel during copy: source remains untouched and reuse remains blocked/unverified.
 - [ ] Attempt normal application close during an active import: close is prevented until processing/cancellation resolves.
+- [ ] Attempt tray/menu-bar Quit during an active import: shutdown is rejected and the workflow window is shown.
 - [ ] Mount a different card/device at the same path after a successful scan: the old scan session is rejected.
 - [ ] Unmount and remount the same card in the same app session: the previous mount-session approval is invalidated and a fresh scan is required.
 - [ ] Insert a second camera card while the first is being scanned/imported: active target does not switch and the second card is queued.
 - [ ] Remove a queued second card before it becomes active: it is removed from the queue and is not scanned from stale state.
 - [ ] Add a new supported file to the card between initial scan and final verification: final rescan includes it, and reuse cannot become safe unless that file also exists byte-identically in the destination.
 - [ ] Make an initially scanned supported file disappear before final verification: reuse is blocked.
+- [ ] Force-kill the process during import, relaunch it, and confirm no previous reuse-safe state is restored.
 
 ## Retirement gate for legacy repositories
 

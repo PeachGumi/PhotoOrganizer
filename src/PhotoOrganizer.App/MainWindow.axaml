@@ -5,9 +5,9 @@
         x:DataType="vm:MainWindowViewModel"
         Title="Photo Organizer"
         Width="920"
-        Height="760"
+        Height="800"
         MinWidth="760"
-        MinHeight="680">
+        MinHeight="720">
   <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="12">
     <StackPanel Grid.Row="0" Spacing="3">
       <TextBlock Text="Photo Organizer" FontSize="28" FontWeight="SemiBold" />
@@ -16,7 +16,7 @@
     </StackPanel>
 
     <Border Grid.Row="1" Padding="14" CornerRadius="8" BorderThickness="1">
-      <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="130,*,Auto" RowSpacing="9" ColumnSpacing="8">
+      <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="130,*,Auto" RowSpacing="9" ColumnSpacing="8">
         <TextBlock Grid.Row="0" Grid.Column="0" Text="保存先" VerticalAlignment="Center" />
         <TextBox Grid.Row="0" Grid.Column="1"
                  Text="{Binding DestinationPath, Mode=TwoWay}"
@@ -44,23 +44,40 @@
           <TextBlock Text="{Binding CountLabel}" FontWeight="SemiBold" />
           <TextBlock Text="{Binding PendingSdText}" Opacity="0.7" />
         </StackPanel>
+
+        <TextBlock Grid.Row="4" Grid.Column="0" Text="保存先プレビュー" VerticalAlignment="Center" />
+        <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Spacing="2">
+          <TextBlock x:Name="DestinationPreviewText" TextWrapping="Wrap" FontFamily="monospace" />
+          <TextBlock Text="YYYY-MM-DDは既取込判定後、今回の新規対象メディアの最古撮影日から確定します。"
+                     FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
       </Grid>
     </Border>
 
     <Border Grid.Row="2" Padding="14" CornerRadius="8" BorderThickness="1">
-      <Grid ColumnDefinitions="130,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="8">
+      <Grid ColumnDefinitions="130,*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="8">
         <TextBlock Grid.Row="0" Grid.Column="0" Text="RAW拡張子" VerticalAlignment="Center" />
         <TextBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
                  Text="{Binding RawExtensionsText, Mode=TwoWay}"
                  IsEnabled="{Binding !IsBusy}"
                  PlaceholderText=".arw, .cr3, .nef, ..." />
 
-        <TextBlock Grid.Row="1" Grid.Column="0" Text="起動設定" VerticalAlignment="Center" />
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="自動起動" VerticalAlignment="Center" />
         <CheckBox Grid.Row="1" Grid.Column="1"
                   Content="ログイン時に自動起動"
                   IsChecked="{Binding AutoStart, Mode=TwoWay}"
                   IsEnabled="{Binding AutoStartSupported}" />
         <TextBlock Grid.Row="1" Grid.Column="2" Text="安全判定は再起動後に引き継ぎません" Opacity="0.65" />
+
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="起動時表示" VerticalAlignment="Center" />
+        <CheckBox x:Name="StartInBackgroundCheckBox"
+                  Grid.Row="2" Grid.Column="1"
+                  Content="バックグラウンド（トレイ/メニューバー）から開始" />
+        <TextBlock x:Name="BackgroundSettingStatus"
+                   Grid.Row="2" Grid.Column="2"
+                   MaxWidth="300"
+                   TextWrapping="Wrap"
+                   Opacity="0.65" />
       </Grid>
     </Border>
 
