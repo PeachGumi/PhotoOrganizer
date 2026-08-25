@@ -17,4 +17,8 @@
     <AvaloniaResource Include="Assets/**" />
     <ProjectReference Include="../PhotoOrganizer.Core/PhotoOrganizer.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PhotoOrganizer.App.Tests" />
+  </ItemGroup>
 </Project>
