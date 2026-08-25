@@ -149,7 +149,21 @@ public sealed class ImportCoordinator
                 return Blocked("Event name is empty.", summary);
             }
 
-            var destination = PathSafety.Normalize(destinationRoot);
+            string destination;
+            try
+            {
+                // Resolve every existing symlink/junction component before any
+                // overlap or volume decision. Otherwise a host-looking alias could
+                // physically point back onto the camera card and falsely act as an
+                // independent backup destination.
+                destination = PhysicalPathResolver.Resolve(destinationRoot);
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"Destination path resolution failed: {ex.Message}");
+                return Blocked("Destination path could not be resolved to a safe physical location.", summary);
+            }
+
             if (PathSafety.IsSameOrDescendant(destination, session.CardRoot, _storageSessions.PathComparison)
                 || PathSafety.IsSameOrDescendant(session.CardRoot, destination, _storageSessions.PathComparison))
             {
