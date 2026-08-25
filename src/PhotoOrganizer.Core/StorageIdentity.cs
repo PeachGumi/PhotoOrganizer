@@ -53,8 +53,8 @@ public static class PathSafety
     /// <summary>
     /// Verifies that an absolute path is reached only through direct filesystem
     /// components. A symlink/junction/reparse point can make a lexically separate
-    /// destination resolve back onto the camera card, so such aliases are never
-    /// permitted to participate in backup or reuse-safety decisions.
+    /// destination resolve back onto the camera card, so user-controlled aliases are
+    /// never permitted to participate in backup or reuse-safety decisions.
     ///
     /// Missing leaf components are allowed because the application may create them;
     /// every component that already exists is inspected, including its ancestors.
@@ -86,7 +86,8 @@ public static class PathSafety
             try
             {
                 var attributes = File.GetAttributes(current);
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                if ((attributes & FileAttributes.ReparsePoint) != 0
+                    && !IsVerifiedMacSystemAlias(current))
                 {
                     error = $"Path contains a symbolic link, junction, or reparse point: {current}";
                     return false;
@@ -129,6 +130,29 @@ public static class PathSafety
         }
 
         return true;
+    }
+
+    private static bool IsVerifiedMacSystemAlias(string path)
+    {
+        // macOS exposes /var as a root-owned compatibility symlink to /private/var.
+        // .NET temporary directories therefore commonly live under /var/folders.
+        // Trust only this exact OS alias and only after resolving it to the expected
+        // fixed target; every user-controlled alias remains fail-closed.
+        if (!OperatingSystem.IsMacOS() || !string.Equals(path, "/var", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        try
+        {
+            var target = new DirectoryInfo(path).ResolveLinkTarget(returnFinalTarget: true);
+            return target is not null
+                && string.Equals(Normalize(target.FullName), "/private/var", StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
 
