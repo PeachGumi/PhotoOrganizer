@@ -12,6 +12,7 @@ public enum DurableCommitStatus
 public interface IDurableFileCommitter
 {
     DurableCommitStatus CommitNoReplace(string temporaryPath, string finalPath);
+    void EnsureDurable(string filePath);
 }
 
 public sealed class PlatformDurableFileCommitter : IDurableFileCommitter
@@ -39,6 +40,31 @@ public sealed class PlatformDurableFileCommitter : IDurableFileCommitter
         throw new PlatformNotSupportedException("Durable destination commit is implemented only for Windows and macOS.");
     }
 
+    public void EnsureDurable(string filePath)
+    {
+        if (!File.Exists(filePath))
+        {
+            throw new FileNotFoundException("Destination file disappeared before durability verification.", filePath);
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            FlushWindowsFile(filePath);
+            return;
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            // Synchronize the name/directory entry before the full device-cache flush.
+            SyncDirectory(Path.GetDirectoryName(filePath)
+                ?? throw new IOException("Destination file has no parent directory."));
+            FullSyncFile(filePath);
+            return;
+        }
+
+        throw new PlatformNotSupportedException("Durability verification is implemented only for Windows and macOS.");
+    }
+
     private static DurableCommitStatus CommitWindows(string temporaryPath, string finalPath)
     {
         // No REPLACE_EXISTING flag is supplied. MOVEFILE_WRITE_THROUGH makes the
@@ -55,17 +81,7 @@ public sealed class PlatformDurableFileCommitter : IDurableFileCommitter
                 $"Durable Windows finalization failed ({error}): {new Win32Exception(error).Message}");
         }
 
-        // Flush the finalized file handle as an independent final barrier. Metadata
-        // such as the source modification time is applied to the temporary file before
-        // this method is called, so no application metadata writes occur afterward.
-        using var final = new FileStream(
-            finalPath,
-            FileMode.Open,
-            FileAccess.ReadWrite,
-            FileShare.Read,
-            bufferSize: 1,
-            FileOptions.WriteThrough);
-        final.Flush(flushToDisk: true);
+        FlushWindowsFile(finalPath);
         return DurableCommitStatus.Committed;
     }
 
@@ -80,15 +96,26 @@ public sealed class PlatformDurableFileCommitter : IDurableFileCommitter
             return DurableCommitStatus.DestinationExists;
         }
 
-        // First synchronize the directory entry created by the rename. Then use
-        // F_FULLFSYNC on the finalized file. Apple's fsync(2) documentation notes
-        // that plain fsync can leave data in drive write caches; F_FULLFSYNC also
-        // asks the device to flush buffered data to permanent storage. Failure is
-        // fatal to reuse approval, but the finalized file is deliberately preserved.
+        // Failure after rename is intentionally fail-closed without deleting the
+        // finalized bytes. A later import can verify or create another safe copy.
         SyncDirectory(Path.GetDirectoryName(finalPath)
             ?? throw new IOException("Final destination has no parent directory."));
         FullSyncFile(finalPath);
         return DurableCommitStatus.Committed;
+    }
+
+    private static void FlushWindowsFile(string path)
+    {
+        // GENERIC_WRITE is required for FlushFileBuffers. FileStream.Flush(true)
+        // issues that OS durability request while leaving file bytes unchanged.
+        using var file = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.Read,
+            bufferSize: 1,
+            FileOptions.WriteThrough);
+        file.Flush(flushToDisk: true);
     }
 
     private static void FullSyncFile(string path)
@@ -103,7 +130,7 @@ public sealed class PlatformDurableFileCommitter : IDurableFileCommitter
         var descriptor = stream.SafeFileHandle.DangerousGetHandle().ToInt32();
         if (Fcntl(descriptor, FFullFsync) != 0)
         {
-            throw CreateMacIOException("F_FULLFSYNC failed for finalized destination file");
+            throw CreateMacIOException("F_FULLFSYNC failed for destination file");
         }
     }
 
