@@ -73,6 +73,8 @@ public sealed class StorageSessionTracker
                 : StringComparer.Ordinal);
     }
 
+    public StringComparison PathComparison => _provider.PathComparison;
+
     public event Action<string>? VolumeMounted;
     public event Action<string>? VolumeRemoved;
 
