@@ -11,6 +11,10 @@ namespace PhotoOrganizer.App;
 
 public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
 {
+    private sealed record MacStorageIdentity(
+        string VolumeFingerprint,
+        string? PhysicalDeviceFingerprint);
+
     public StringComparison PathComparison => OperatingSystem.IsWindows()
         ? StringComparison.OrdinalIgnoreCase
         : StringComparison.Ordinal;
@@ -21,8 +25,20 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
             ? Path.GetPathRoot(Environment.SystemDirectory)
             : "/";
 
+        DriveInfo[] drives;
+        try
+        {
+            drives = DriveInfo.GetDrives();
+        }
+        catch
+        {
+            // Enumeration failure cannot be allowed to manufacture or preserve an
+            // unverified identity. Callers treat an empty set as fail-closed.
+            return [];
+        }
+
         var volumes = new List<MountedVolumeInfo>();
-        foreach (var drive in DriveInfo.GetDrives())
+        foreach (var drive in drives)
         {
             try
             {
@@ -35,10 +51,30 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
                     continue;
                 }
 
-                var fingerprint = TryGetFingerprint(root);
+                string? fingerprint;
+                string? physicalDeviceFingerprint;
+
+                if (OperatingSystem.IsWindows())
+                {
+                    fingerprint = TryGetWindowsVolumeGuid(root);
+                    physicalDeviceFingerprint = TryGetWindowsPhysicalDiskFingerprint(root);
+                }
+                else if (OperatingSystem.IsMacOS())
+                {
+                    // diskutil already exposes both persistent volume identity and the
+                    // containing whole-disk identity. Resolve them together so a safety
+                    // refresh never launches a second subprocess for the same volume.
+                    var identity = TryGetMacStorageIdentity(root);
+                    fingerprint = identity?.VolumeFingerprint;
+                    physicalDeviceFingerprint = identity?.PhysicalDeviceFingerprint;
+                }
+                else
+                {
+                    continue;
+                }
+
                 if (string.IsNullOrWhiteSpace(fingerprint)) continue;
 
-                var physicalDeviceFingerprint = TryGetPhysicalDeviceFingerprint(root);
                 var isSystem = !string.IsNullOrWhiteSpace(systemRoot)
                     && string.Equals(PathSafety.Normalize(systemRoot), root, PathComparison);
                 var isRemovable = drive.DriveType == DriveType.Removable
@@ -87,20 +123,6 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
             .Where(v => PathSafety.IsSameOrDescendant(current, v.RootPath, PathComparison))
             .OrderByDescending(v => PathSafety.Normalize(v.RootPath).Length)
             .FirstOrDefault();
-    }
-
-    private static string? TryGetFingerprint(string root)
-    {
-        if (OperatingSystem.IsWindows()) return TryGetWindowsVolumeGuid(root);
-        if (OperatingSystem.IsMacOS()) return TryGetMacDeviceFingerprint(root);
-        return null;
-    }
-
-    private static string? TryGetPhysicalDeviceFingerprint(string root)
-    {
-        if (OperatingSystem.IsWindows()) return TryGetWindowsPhysicalDiskFingerprint(root);
-        if (OperatingSystem.IsMacOS()) return TryGetMacWholeDiskFingerprint(root);
-        return null;
     }
 
     private static string? TryGetWindowsVolumeGuid(string root)
@@ -152,38 +174,8 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
         return null;
     }
 
-    private static string? TryGetMacDeviceFingerprint(string root)
-    {
-        try
-        {
-            using var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "/usr/bin/stat",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            process.StartInfo.ArgumentList.Add("-f");
-            process.StartInfo.ArgumentList.Add("%d");
-            process.StartInfo.ArgumentList.Add(root);
-
-            if (!process.Start()) return null;
-            var output = process.StandardOutput.ReadToEnd().Trim();
-            process.WaitForExit(3000);
-            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output)) return null;
-            return "mac-device:" + output;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static string? TryGetMacWholeDiskFingerprint(string root)
+    [SupportedOSPlatform("macos")]
+    private static MacStorageIdentity? TryGetMacStorageIdentity(string root)
     {
         try
         {
@@ -203,11 +195,16 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
             process.StartInfo.ArgumentList.Add(root);
 
             if (!process.Start()) return null;
+
+            // Begin draining both redirected pipes before waiting. Reading either
+            // pipe synchronously first can deadlock if the child blocks or fills the
+            // other pipe, which would make the nominal timeout ineffective.
             var stdout = process.StandardOutput.ReadToEndAsync();
             var stderr = process.StandardError.ReadToEndAsync();
             if (!process.WaitForExit(5000))
             {
                 try { process.Kill(entireProcessTree: true); } catch { }
+                try { process.WaitForExit(1000); } catch { }
                 return null;
             }
 
@@ -219,28 +216,38 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
             var dictionary = document.Root?.Elements().FirstOrDefault(element => element.Name.LocalName == "dict");
             if (dictionary is null) return null;
 
-            var parentWholeDisk = GetPlistString(dictionary, "ParentWholeDisk");
-            if (!string.IsNullOrWhiteSpace(parentWholeDisk))
-            {
-                return "mac-whole-disk:" + parentWholeDisk;
-            }
+            // Prefer a persistent filesystem/partition identity. DeviceIdentifier is
+            // only a last-resort fallback because BSD disk numbers are ephemeral.
+            var persistentVolumeId = FirstNonEmpty(
+                GetPlistString(dictionary, "VolumeUUID"),
+                GetPlistString(dictionary, "APFSVolumeUUID"),
+                GetPlistString(dictionary, "DiskUUID"),
+                GetPlistString(dictionary, "MediaUUID"));
+            var deviceIdentifier = GetPlistString(dictionary, "DeviceIdentifier");
+            var volumeIdentity = FirstNonEmpty(persistentVolumeId, deviceIdentifier);
+            if (string.IsNullOrWhiteSpace(volumeIdentity)) return null;
 
-            if (GetPlistBoolean(dictionary, "WholeDisk") == true)
-            {
-                var deviceIdentifier = GetPlistString(dictionary, "DeviceIdentifier");
-                if (!string.IsNullOrWhiteSpace(deviceIdentifier))
-                {
-                    return "mac-whole-disk:" + deviceIdentifier;
-                }
-            }
+            var parentWholeDisk = GetPlistString(dictionary, "ParentWholeDisk");
+            var wholeDisk = GetPlistBoolean(dictionary, "WholeDisk") == true
+                ? deviceIdentifier
+                : null;
+            var physicalIdentity = FirstNonEmpty(parentWholeDisk, wholeDisk);
+
+            return new MacStorageIdentity(
+                "mac-volume:" + volumeIdentity,
+                string.IsNullOrWhiteSpace(physicalIdentity)
+                    ? null
+                    : "mac-whole-disk:" + physicalIdentity);
         }
         catch
         {
-            // Physical identity is a safety signal. Callers fail closed when unavailable.
+            // Storage identity is a safety signal. Callers fail closed when unavailable.
+            return null;
         }
-
-        return null;
     }
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
     private static string? GetPlistString(XElement dictionary, string key)
     {
