@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.Versioning;
 using System.Security;
 using Microsoft.Win32;
 
@@ -23,12 +24,7 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
     {
         try
         {
-            if (OperatingSystem.IsWindows())
-            {
-                using var key = Registry.CurrentUser.OpenSubKey(WindowsRunKey, writable: false);
-                return key?.GetValue(WindowsValueName) is string value && !string.IsNullOrWhiteSpace(value);
-            }
-
+            if (OperatingSystem.IsWindows()) return IsWindowsEnabled();
             if (OperatingSystem.IsMacOS()) return File.Exists(GetMacPlistPath());
         }
         catch
@@ -55,6 +51,14 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
         }
     }
 
+    [SupportedOSPlatform("windows")]
+    private static bool IsWindowsEnabled()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(WindowsRunKey, writable: false);
+        return key?.GetValue(WindowsValueName) is string value && !string.IsNullOrWhiteSpace(value);
+    }
+
+    [SupportedOSPlatform("windows")]
     private static bool SetWindows(bool enabled, out string? error)
     {
         using var key = Registry.CurrentUser.CreateSubKey(WindowsRunKey, writable: true);
@@ -78,11 +82,12 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
             return false;
         }
 
-        key.SetValue(WindowsValueName, $"\"{executable}\" --background", RegistryValueKind.String);
+        key.SetValue(WindowsValueName, $"\"{executable}\"", RegistryValueKind.String);
         error = null;
         return true;
     }
 
+    [SupportedOSPlatform("macos")]
     private static bool SetMac(bool enabled, out string? error)
     {
         var plistPath = GetMacPlistPath();
@@ -112,7 +117,6 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
   <key>ProgramArguments</key>
   <array>
     <string>{escapedExecutable}</string>
-    <string>--background</string>
   </array>
   <key>RunAtLoad</key><true/>
 </dict>
@@ -141,19 +145,16 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
         "LaunchAgents",
         MacLabel + ".plist");
 
-    private static void TryBootstrap(string plistPath)
-    {
-        RunLaunchctl("bootstrap", $"gui/{GetEffectiveUserId()}", plistPath);
-    }
+    [SupportedOSPlatform("macos")]
+    private static void TryBootstrap(string plistPath) => RunLaunchctl("bootstrap", $"gui/{geteuid()}", plistPath);
 
-    private static void TryBootout(string plistPath)
-    {
-        RunLaunchctl("bootout", $"gui/{GetEffectiveUserId()}", plistPath);
-    }
+    [SupportedOSPlatform("macos")]
+    private static void TryBootout(string plistPath) => RunLaunchctl("bootout", $"gui/{geteuid()}", plistPath);
 
+    [SupportedOSPlatform("macos")]
     private static void RunLaunchctl(params string[] arguments)
     {
-        if (!OperatingSystem.IsMacOS() || !File.Exists("/bin/launchctl")) return;
+        if (!File.Exists("/bin/launchctl")) return;
         try
         {
             using var process = new Process
@@ -177,12 +178,7 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
         }
     }
 
-    private static uint GetEffectiveUserId()
-    {
-        if (!OperatingSystem.IsMacOS()) return 0;
-        return geteuid();
-    }
-
-    [System.Runtime.InteropServices.DllImport("libSystem.B.dylib")]
+    [DllImport("libSystem.B.dylib")]
+    [SupportedOSPlatform("macos")]
     private static extern uint geteuid();
 }
