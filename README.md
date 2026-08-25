@@ -31,7 +31,7 @@ tests/
 
 Photo Organizer must never delete, move, rename, modify, or overwrite source media on the camera card.
 
-Copy completion is **not** equivalent to SD-card reuse approval. Reuse approval requires a fresh complete card scan, mount-session storage-identity checks, and byte-for-byte destination verification with file size and SHA-256.
+Copy completion is **not** equivalent to SD-card reuse approval. Reuse approval requires a fresh complete card scan, mount-session and physical-storage identity checks, an independent destination match by file size and SHA-256, and a platform-specific durable destination commit so the green state does not rely only on volatile operating-system or device caches.
 
 Supported import/reuse-verification scope:
 
@@ -60,7 +60,7 @@ The Avalonia application provides one Windows/macOS workflow for:
 
 Closing the workflow window while idle hides it instead of stopping camera-card monitoring. Use the tray/menu-bar menu to show the window again or explicitly quit. Graceful quit is rejected during an active import. Starting with `--background`, or enabling the background-start preference, keeps the main window hidden until a camera card is detected or the user opens it from the tray/menu bar.
 
-A green `保存先コピー検証済み — SDカード再利用可能` state is produced only by the shared Core after final post-import verification. It is never persisted across application restarts.
+A green `保存先コピー検証済み — SDカード再利用可能` state is produced only by the shared Core after the post-import full-card rescan, fresh destination byte verification, durable destination synchronization, and final storage-identity checks. It is never persisted across application restarts. Green means one specified destination copy was proven; it does not mean a second independent backup exists.
 
 ## Development
 
