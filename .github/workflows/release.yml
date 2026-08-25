@@ -247,6 +247,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets build
+          app_icon="$RUNNER_TEMP/PhotoOrganizer.icns"
+          bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/app-icon.ico "$app_icon"
+          test -s "$app_icon"
 
           for arch in arm64 x64; do
             rid="osx-$arch"
@@ -269,6 +272,8 @@ jobs:
             ditto "$publish" "$macos"
             chmod +x "$macos/PhotoOrganizer"
             cp LICENSE "$resources/LICENSE.txt"
+            cp "$app_icon" "$resources/PhotoOrganizer.icns"
+            test -s "$resources/PhotoOrganizer.icns"
 
             cat > "$contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -278,6 +283,7 @@ jobs:
             <key>CFBundleDevelopmentRegion</key><string>en</string>
             <key>CFBundleDisplayName</key><string>Photo Organizer</string>
             <key>CFBundleExecutable</key><string>PhotoOrganizer</string>
+            <key>CFBundleIconFile</key><string>PhotoOrganizer.icns</string>
             <key>CFBundleIdentifier</key><string>com.peachgumi.photoorganizer</string>
             <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
             <key>CFBundleName</key><string>Photo Organizer</string>
@@ -365,7 +371,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP"/PhotoOrganizer-*.zip
+          rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP"/PhotoOrganizer-*.zip "$RUNNER_TEMP/PhotoOrganizer.icns"
           security delete-keychain "$RUNNER_TEMP/photo-organizer-signing.keychain-db" 2>/dev/null || true
 
   publish:

@@ -46,6 +46,14 @@ jobs:
       - name: Build unified desktop app
         run: dotnet build src/PhotoOrganizer.App/PhotoOrganizer.App.csproj --configuration Release --no-restore
 
+      - name: Validate macOS product icon generation
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/app-icon.ico "$RUNNER_TEMP/PhotoOrganizer.icns"
+          test -s "$RUNNER_TEMP/PhotoOrganizer.icns"
+
   release-contract:
     name: Release contract
     runs-on: ubuntu-latest
@@ -65,7 +73,9 @@ jobs:
 
       - name: Validate release helper syntax
         shell: bash
-        run: bash -n Scripts/configure_release_secrets.sh
+        run: |
+          bash -n Scripts/configure_release_secrets.sh
+          bash -n Scripts/build_macos_icon.sh
 
       - name: Enforce fail-closed release contract
         shell: bash
@@ -73,6 +83,8 @@ jobs:
           set -euo pipefail
           workflow=.github/workflows/release.yml
           promotion=.github/workflows/promote-release.yml
+          project=src/PhotoOrganizer.App/PhotoOrganizer.App.csproj
+          window=src/PhotoOrganizer.App/MainWindow.axaml
           for secret in \
             WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD \
             MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD DEVELOPER_ID_APPLICATION \
@@ -86,6 +98,14 @@ jobs:
           grep -q 'sha256sum -c' "$workflow"
           grep -q 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' "$workflow"
           grep -q 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' "$workflow"
+
+          # Product identity must survive both desktop builds and signed packaging.
+          test -s src/PhotoOrganizer.App/Assets/app-icon.ico
+          grep -q '<ApplicationIcon>Assets/app-icon.ico</ApplicationIcon>' "$project"
+          grep -q 'Icon="/Assets/app-icon.ico"' "$window"
+          grep -q 'Scripts/build_macos_icon.sh' "$workflow"
+          grep -q 'CFBundleIconFile' "$workflow"
+          grep -q 'PhotoOrganizer.icns' "$workflow"
 
           # Signed artifacts are acceptance candidates first. The build workflow must
           # never make them the public stable/latest release on its own.
