@@ -114,6 +114,8 @@ jobs:
       - name: Validate release helper syntax
         shell: bash
         run: |
+          set -euo pipefail
+          bash -n Scripts/configure_repository.sh
           bash -n Scripts/configure_release_secrets.sh
           bash -n Scripts/build_macos_icon.sh
           bash -n Scripts/smoke_package_macos.sh
@@ -127,13 +129,39 @@ jobs:
           promotion=.github/workflows/promote-release.yml
           project=src/PhotoOrganizer.App/PhotoOrganizer.App.csproj
           window=src/PhotoOrganizer.App/MainWindow.axaml
+          repo_helper=Scripts/configure_repository.sh
+          secret_helper=Scripts/configure_release_secrets.sh
+
           for secret in \
             WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD \
             MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD DEVELOPER_ID_APPLICATION \
             APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
             grep -q "$secret" "$workflow"
           done
-          grep -q 'needs: \[preflight, windows, macos\]' "$workflow"
+
+          # Signing is a protected, manually dispatched main-only capability.
+          grep -q '^  workflow_dispatch:' "$workflow"
+          if grep -q '^  push:' "$workflow"; then
+            echo 'release.yml must not auto-trigger from tags or release branches.'
+            exit 1
+          fi
+          grep -q 'refs/heads/main' "$workflow"
+          [[ "$(grep -c 'name: production-signing' "$workflow")" -ge 4 ]]
+          grep -q 'deployment: false' "$workflow"
+          grep -q 'needs: \[preflight, signing-preflight, windows, macos\]' "$workflow"
+          grep -q 'Tag already exists' "$workflow"
+          grep -q 'contents: read' "$workflow"
+          grep -q 'contents: write' "$workflow"
+
+          # Helpers must build the server-side environment boundary and place secrets
+          # there rather than leaving repository-wide signing credentials behind.
+          grep -q 'environments/${SIGNING_ENVIRONMENT}' "$repo_helper"
+          grep -q 'deployment-branch-policies' "$repo_helper"
+          grep -q "name='main'" "$repo_helper"
+          grep -q 'actions/permissions/workflow' "$repo_helper"
+          grep -q -- '--env "$environment"' "$secret_helper"
+          grep -q 'Removed legacy repository secret' "$secret_helper"
+
           grep -q 'signtool' "$workflow"
           grep -q 'notarytool submit' "$workflow"
           grep -q 'stapler validate' "$workflow"
