@@ -1,7 +1,7 @@
 # Photo Organizer
 
-> **SDカードの写真・動画を Windows / macOS へ安全に取り込み、日付とイベント単位で整理するデスクトップアプリ。**  
-> 単に「コピーが終わった」だけでは SD カードを再利用可能と判定せず、保存先の実データ・永続化・ストレージ識別まで確認してから明示的に安全状態へ移行します。
+> **SDカードの写真・動画を Windows / macOS に安全に取り込み、撮影日とイベントごとに整理するデスクトップアプリ。**  
+> Photo Organizer は「コピーできた」だけでは終わりにせず、保存先の内容と書き込み完了を確認したうえで、SDカードを再利用してよい状態かどうかまで判定します。
 
 [![CI](https://github.com/PeachGumi/PhotoOrganizer/actions/workflows/ci.yml/badge.svg)](https://github.com/PeachGumi/PhotoOrganizer/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/PeachGumi/PhotoOrganizer/actions/workflows/codeql.yml/badge.svg)](https://github.com/PeachGumi/PhotoOrganizer/actions/workflows/codeql.yml)
@@ -10,25 +10,25 @@
 [![Windows / macOS](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey.svg)](#対応環境)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Photo Organizer は、カメラの SD カードにある JPG / RAW / MOV / MP4 を指定した保存先へ取り込み、次のような構造へ整理する Windows / macOS 共通アプリです。
+Photo Organizer は、撮影後のSDカードをPCやMacに挿し、JPG / RAW / MOV / MP4を指定した保存先へ取り込みながら、次のようなフォルダ構成に自動整理するアプリです。
 
 ```text
 [保存先]/[YYYY]/[YYYY-MM-DD]_[イベント名]/[RAW|JPG|MP4]/
 ```
 
-設計の中心にあるのは、次の3つです。
+単なるファイルコピーではなく、次の3点を特に重視しています。
 
-- **SDカード上の元データを変更しない**
-- **保存先にある既存データを上書きしない**
-- **「コピー完了」と「SDカード再利用可能」を別の状態として扱う**
+- **SDカード上の元データには手を加えない**
+- **保存先にある既存ファイルは上書きしない**
+- **「コピーが終わった」と「SDカードを再利用してよい」を別の状態として扱う**
 
-Windows 版と macOS 版を別々に実装するのではなく、取り込み・重複判定・コピー整合性・SD 再利用判定を共有 Core へ集約し、OS 固有処理だけを薄い platform adapter に分離しています。
+取り込みや重複判定、安全確認の中心部分は Windows / macOS 共通の Core にまとめ、OSごとの差が避けられない処理だけをアプリ側に分離しています。
 
-[まず知りたいこと](#まず知りたいこと) ・ [クイックスタート](#クイックスタート) ・ [対応環境](#対応環境) ・ [対応形式](#対応形式) ・ [安全設計](#データ安全性) ・ [インストール](#インストールと配布状況) ・ [開発](#ソースから実行する) ・ [品質保証](#テストとci) ・ [FAQ](#よくある質問)
+[まず知りたいこと](#まず知りたいこと) ・ [クイックスタート](#クイックスタート) ・ [対応環境](#対応環境) ・ [対応形式](#対応形式) ・ [安全設計](#データ安全性) ・ [配布](#インストールと配布状況) ・ [開発](#ソースから実行する) ・ [品質保証](#テストとci) ・ [FAQ](#よくある質問)
 
-> **現在の配布状態**
+> **配布について**
 >
-> まだ一般利用者向けの stable release は公開していません。署名済み Prerelease → 実機受け入れ試験 → 同一成果物の stable promotion という手順を完了したものだけを正式版として公開する方針です。
+> 正式版は GitHub Releases の Latest として公開します。Latest が存在しない場合は、一般利用者向けの正式版はまだ公開されていません。署名済みのプレリリースを実機で検証し、その同じ成果物だけを正式版へ昇格させる方針です。
 
 ---
 
@@ -38,102 +38,109 @@ Windows 版と macOS 版を別々に実装するのではなく、取り込み�
 
 | 機能 | 内容 |
 |---|---|
-| SDカード検知 | `DCIM` / `PRIVATE` を持つカメラメディアを検知 |
-| カード全体の安全スキャン | `DCIM/100NIKON` などの下位フォルダを選んでも、安全なカード root まで広げて確認 |
-| メディア分類 | JPG / JPEG、設定済み RAW、MOV / MP4 を自動分類 |
-| 日付・イベント整理 | 撮影日とイベント名から保存フォルダを作成 |
-| 内容ベース重複判定 | ファイル名ではなく **サイズ + SHA-256** で既存データと照合 |
-| 上書き防止 | 同名・異内容は `_2`, `_3` ... として別ファイルで保存 |
-| 検証付きコピー | `.partial-*` 一時ファイル、再ハッシュ、no-replace final move を使用 |
-| 保存先永続化確認 | Windows / macOS の durability primitive で保存先への永続化を要求 |
-| SD再利用判定 | 取り込み後に SD カードを再スキャンし、全対応メディアをもう一度検証 |
-| ストレージ差し替え検知 | volume / physical device / mount session identity を追跡 |
-| 常駐動作 | Windows はトレイ、macOS はメニューバーに常駐可能 |
-| 複数カード | 処理中のカードを固定し、2枚目は待機キューへ保持 |
-| 自動起動 | ログイン時起動とバックグラウンド起動に対応 |
+| SDカードの検出 | `DCIM` / `PRIVATE` を持つカメラ用メディアを検出 |
+| カード全体の確認 | `DCIM/100NIKON` などの下位フォルダを選んでも、カード全体を確認できるルートまで広げてスキャン |
+| メディアの分類 | JPG / JPEG、設定したRAW形式、MOV / MP4を自動分類 |
+| 日付・イベント整理 | 撮影日とイベント名から保存フォルダを自動作成 |
+| 内容による重複判定 | ファイル名ではなく **サイズ + SHA-256** で既存データと照合 |
+| 上書き防止 | 同じ名前で内容が違う場合は `_2`, `_3` ... を付けて別ファイルとして保存 |
+| 検証付きコピー | `.partial-*` 一時ファイル、ハッシュ再確認、上書きしない確定処理を使用 |
+| 書き込み完了の確認 | Windows / macOS が提供する仕組みを使い、保存先への書き込み完了を要求 |
+| SDカード再利用判定 | 取り込み後にカードをもう一度スキャンし、現在ある対応メディアをすべて再確認 |
+| ストレージ差し替え対策 | ボリューム、物理デバイス、マウント状態の識別情報を追跡 |
+| 常駐動作 | Windowsではトレイ、macOSではメニューバーに常駐可能 |
+| 複数カード | 処理中のカードは固定し、2枚目は待機列へ保持 |
+| 自動起動 | ログイン時の自動起動とバックグラウンド起動に対応 |
 
-### しないこと / できないこと
+### しないこと / 対象外のこと
 
-- **SDカード上の元ファイルを削除・移動・rename・書き換えしません**
-- SDカードをアプリからフォーマット・消去する機能はありません
-- XMP / XML / TXT / カメラDBなど、未対応 sidecar・補助ファイルは取り込みません
-- 緑の再利用可能表示は、**指定保存先1か所への検証済みコピー**を意味します。3-2-1 バックアップや二重バックアップ完了を意味しません
-- symlink / junction / reparse point 経由の保存先を独立したバックアップ先として扱いません
-- 同じ物理ディスク・SDカード上の別 partition を「別の保存先」とは認めません
-- OS からストレージの物理 identity を安全に取得できない構成では fail-closed で拒否する場合があります
-- 故障したストレージや、flush 完了を不正に報告する hardware / firmware まで完全に保証するものではありません
+- **SDカード上の元ファイルを削除・移動・名前変更・書き換えしません**
+- SDカードをアプリからフォーマットしたり消去したりする機能はありません
+- XMP / XML / TXT / カメラ固有DBなど、未対応のサイドカーファイルや補助ファイルは取り込みません
+- 緑の「SDカード再利用可能」は、**指定した保存先1か所への検証済みコピー**を意味します。二重バックアップや3-2-1バックアップの完了を意味するものではありません
+- シンボリックリンクや junction / reparse point 経由の保存先を、独立したバックアップ先とはみなしません
+- 同じ物理ディスクやSDカード上の別パーティションを、独立した保存先とはみなしません
+- OSから物理ストレージを安全に識別できない構成では、処理を続けず安全側に停止する場合があります
+- 故障したストレージや、書き込み完了を誤って報告するハードウェア / ファームウェアまで完全に保証することはできません
 
-### こんな使い方を想定しています
+### 想定している使い方
 
-- 撮影のたびに SD カードを Mac / PC へ挿して写真を取り込みたい
-- 取り込み後は次回撮影前にカメラ側で SD カードをフォーマットする
-- RAW / JPG / 動画をイベントごとに自動で整理したい
-- 前回分が SD カードに残っていても、新しいデータだけ安全に追加したい
-- カメラが `DSC_0001.JPG` のようなファイル名を再利用しても事故らないようにしたい
-- Finder / Explorer の手動コピーより厳格に「消してよいタイミング」を判断したい
+Photo Organizer は、特に次のような撮影フローを想定しています。
+
+1. カメラで撮影する
+2. SDカードをPC / Macへ挿す
+3. Photo Organizerで写真・動画を取り込む
+4. 「SDカード再利用可能」になるまで待つ
+5. 必要なら保存先を目視確認する
+6. SDカードをカメラへ戻す
+7. 次の撮影前にカメラ側でフォーマットして再利用する
+
+前回の写真がカードに残ったままでも問題ありません。すでに保存済みと確認できたデータは再コピーせず、新しいデータだけを取り込みます。
 
 ---
 
 ## クイックスタート
 
-一般利用者向けの正式配布物が公開された後は、GitHub Releases から自分の OS / CPU に合うパッケージを取得します。
+正式版が公開されている場合は、GitHub Releases から自分のOS / CPUに合うパッケージを取得します。
 
-基本操作は次の流れです。
+基本操作は次のとおりです。
 
 1. Photo Organizer を起動する
 2. 写真ライブラリの保存先を選ぶ
-3. カメラの SD カードを接続する
-4. 自動検知を待つ。必要なら SD カードまたはカード内フォルダを手動選択する
-5. RAW / JPG / MP4 の件数と完全スキャン成功を確認する
+3. カメラのSDカードを接続する
+4. 自動検出を待つ。必要ならSDカードやカード内のフォルダを手動で選ぶ
+5. RAW / JPG / MP4 の件数と、カード全体のスキャンが完了したことを確認する
 6. イベント名を入力する
-7. 保存先プレビューを確認する
+7. 保存先のプレビューを確認する
 8. **取り込み開始**を押す
-9. コピー表示が100%になっても SD カードを抜かず、最終検証を待つ
+9. コピー表示が100%になっても、まだSDカードを抜かずに最終確認を待つ
 10. 緑の **「保存先コピー検証済み — SDカード再利用可能」** を確認する
-11. 必要なら保存先側の写真を別アプリでも確認する
-12. SD カードをカメラへ戻し、次回撮影前にカメラ側で再利用 / フォーマットする
+11. 必要なら保存先の写真を別の画像ビューアやRAW現像ソフトでも確認する
+12. SDカードをカメラへ戻し、次回撮影時に再利用する
+
+内部では、おおむね次の順序で確認しています。
 
 ```text
 撮影
   ↓
 SDカードをPC / Macへ接続
   ↓
-カード全体を完全スキャン
+カード全体を完全にスキャン
   ↓
-保存先が別volume・別physical deviceか確認
+保存先が別のボリューム・別の物理デバイスか確認
   ↓
-既存データとsize + SHA-256で重複照合
+既存データとサイズ + SHA-256で重複確認
   ↓
-新規メディアを検証付きコピー
+新しいメディアを検証しながらコピー
   ↓
-SDカード全体をもう一度完全スキャン
+SDカード全体をもう一度スキャン
   ↓
-保存先の実bytes + durable commitを検証
+保存先の実データと書き込み完了を確認
   ↓
-source / destination identityを最終確認
+コピー元・保存先のストレージが途中で変わっていないか確認
   ↓
 「SDカード再利用可能」
 ```
 
-**どこか1つでも確認できなければ green にはなりません。**
+**どこか1つでも確認できなければ、「再利用可能」にはなりません。**
 
 ---
 
 ## Photo Organizer が解決したいこと
 
-写真を取り込むだけなら、Finder や Explorer でコピーするだけでもできます。
+写真を取り込むだけなら、Finder や Explorer でコピーすることもできます。
 
-難しいのは、その後です。
+難しいのは、そのあとです。
 
 - コピーが本当に最後まで成功したのか
-- 同名ファイルが既にあった場合に上書きされていないか
-- カメラがファイル番号を再利用したとき、別写真を「重複」と誤判定しないか
-- SD カードに前回分が残っていても、新しい写真だけを安全に取り込めるか
-- コピー後に保存先が取り外された状態で、誤って「SDカードを消してよい」と表示しないか
-- OS や storage device の write cache にしか存在しないデータを「保存済み」と誤認しないか
-- 同じ mount path に別の SD カードが差し替わっても、以前の承認を使い回してしまわないか
+- 同じ名前のファイルがあったとき、既存データを上書きしていないか
+- カメラがファイル番号を使い回したとき、別の写真を重複と誤判定しないか
+- 前回の写真がSDカードに残っていても、新しい写真だけを正しく追加できるか
+- コピー後に保存先が外れているのに、「SDカードを消してよい」と誤って表示しないか
+- OSやストレージの書き込みキャッシュにしか存在しないデータを「保存済み」とみなしていないか
+- 同じマウント先に別のSDカードが差し替わったとき、以前の確認結果を使い回してしまわないか
 
-Photo Organizer は、**「いつ SD カードを再利用してよいか」までを1つの取り込みトランザクションとして扱う**ことを目的にしています。
+Photo Organizer は、こうした確認をまとめて行い、**「いつSDカードを再利用してよいか」までを1回の取り込み処理として扱う**ことを目的にしています。
 
 ---
 
@@ -141,15 +148,15 @@ Photo Organizer は、**「いつ SD カードを再利用してよいか」ま�
 
 ### 利用環境
 
-| OS | Architecture | 想定配布形式 | 状態 |
+| OS | CPU | 配布形式 | 状態 |
 |---|---|---|---|
 | Windows | x64 | self-contained ZIP | 対応 |
 | Windows | ARM64 | self-contained ZIP | 対応 |
-| macOS | Apple Silicon / arm64 | signed + notarized DMG | 対応 |
-| macOS | Intel / x64 | signed + notarized DMG | 対応 |
+| macOS | Apple Silicon / arm64 | 署名・公証済みDMG | 対応 |
+| macOS | Intel / x64 | 署名・公証済みDMG | 対応 |
 | Linux | - | - | 非対応 |
 
-正式配布時は、Windows 成果物に Authenticode、macOS 成果物に Developer ID Application 署名・Hardened Runtime・Apple Notarization・stapling を要求します。
+正式配布時は、Windows成果物に Authenticode 署名、macOS成果物に Developer ID Application 署名、Hardened Runtime、Apple Notarization、stapling を要求します。
 
 ### 開発環境
 
@@ -157,7 +164,7 @@ Photo Organizer は、**「いつ SD カードを再利用してよいか」ま�
 - Windows または macOS
 - Avalonia 12
 
-Linux 上で Core を扱える部分はありますが、製品としての desktop platform adapter と release acceptance の対象は Windows / macOS です。
+共通Coreの一部はLinux上でも扱えますが、製品として対応するデスクトップ環境と実機受け入れ試験の対象は Windows / macOS です。
 
 ---
 
@@ -165,13 +172,13 @@ Linux 上で Core を扱える部分はありますが、製品としての desk
 
 ### RAW
 
-初期設定では次の拡張子を RAW として扱います。
+初期設定では次の拡張子をRAWとして扱います。
 
 ```text
 .arw  .cr2  .cr3  .nef  .dng  .raf  .rw2  .orf  .pef
 ```
 
-RAW 拡張子はアプリ設定から変更できます。
+RAW拡張子は設定から変更できます。
 
 ### JPEG
 
@@ -185,25 +192,25 @@ RAW 拡張子はアプリ設定から変更できます。
 .mov  .mp4
 ```
 
-`.jpg` / `.jpeg` / `.mov` / `.mp4` は標準分類として予約されており、RAW 設定へ追加しても RAW として再分類されません。
+`.jpg` / `.jpeg` / `.mov` / `.mp4` は標準の分類として固定されており、RAW拡張子の設定へ追加してもRAWとして扱われません。
 
-### 対象外ファイル
+### 取り込み対象外のファイル
 
-たとえば次のようなファイルは、取り込みと SD 再利用判定の対象外です。
+たとえば次のようなファイルは、取り込みとSDカード再利用判定の対象外です。
 
 ```text
-.xmp  .xml  .txt  カメラ固有DB  sidecar  その他の未対応形式
+.xmp  .xml  .txt  カメラ固有DB  その他のサイドカーファイル
 ```
 
-対象外ファイルがカードに存在すること自体は、対応メディアの再利用判定を妨げません。
+対象外のファイルがカードに入っていても、それだけでSDカードの再利用判定が止まることはありません。
 
-一方、**対応形式の 0-byte ファイル**は正常な撮影データとして確認できないため、スキャンを fail-closed で停止します。
+一方、**対応形式なのに0バイトのファイル**がある場合は、正常な撮影データと確認できないため、安全側に処理を停止します。
 
 ---
 
 ## 保存先の構造
 
-保存先には、年・日付・イベント名・メディア種別の順で整理されます。
+保存先は、年 → 日付とイベント名 → メディア種別の順に整理されます。
 
 ```text
 Pictures/
@@ -221,31 +228,31 @@ Pictures/
 
 ### イベント日付の決め方
 
-今回新しく取り込むメディアがある場合は、そのメディアを基準にイベント日付を決定します。
+今回新しく取り込むメディアがある場合は、そのメディアの撮影日時を基準にイベント日付を決めます。
 
-日付取得の優先順位は次のとおりです。
+日時は次の優先順位で取得します。
 
 1. EXIF `DateTimeOriginal`
 2. EXIF `DateTimeDigitized`
 3. ファイルの最終更新日時
 
-複数の撮影日が含まれる場合は最も古い日付をイベント日として採用し、警告を残します。
+複数の日付にまたがる撮影データが含まれる場合は、最も古い日付をイベント日として使い、警告を残します。
 
-イベント名に OS 上ファイル名として使用できない文字が含まれる場合は、安全な文字へ置換します。
+イベント名にファイル名として使えない文字が含まれている場合は、安全に保存できる文字へ置き換えます。
 
-### 前回の写真が SD カードに残っている場合
+### 前回の写真がSDカードに残っている場合
 
-問題ありません。
+そのまま再度取り込めます。
 
-保存先全体から同じサイズ・同じ SHA-256 の実ファイルが見つかった写真は、既に保存済みとして再コピーを省略します。新しい内容だけが今回のイベントへ取り込まれます。
+保存先全体を確認し、同じサイズ・同じSHA-256のファイルがすでに存在する場合は、保存済みとして再コピーを省略します。今回追加されたデータだけが新しいイベントへ入ります。
 
 ### カメラが同じファイル名を再利用した場合
 
-ファイル名だけでは重複判定しません。
+ファイル名だけで重複とは判断しません。
 
-以前の `DSC_0001.JPG` と今回の `DSC_0001.JPG` が同名・同サイズでも、SHA-256 が異なれば別の写真として扱います。
+以前の `DSC_0001.JPG` と今回の `DSC_0001.JPG` が同名・同サイズでも、SHA-256が違えば別の写真として扱います。
 
-保存先に同名の別データが存在する場合は、既存ファイルを残したまま次のように保存します。
+保存先に同じ名前の別データがある場合は、既存ファイルを残したまま次のように保存します。
 
 ```text
 DSC_0001.JPG
@@ -257,176 +264,176 @@ DSC_0001_3.JPG
 
 ## データ安全性
 
-Photo Organizer では、データ安全性に関するルールを通常の実装詳細ではなく**契約**として扱っています。
+Photo Organizer では、データを失わないためのルールを単なる実装上の都合ではなく、**守るべき安全契約**として定義しています。
 
-厳密な仕様は [`docs/DATA_SAFETY.md`](docs/DATA_SAFETY.md) が正です。ここでは利用者が知るべき要点をまとめます。
+厳密な仕様は [`docs/DATA_SAFETY.md`](docs/DATA_SAFETY.md) にまとめています。ここでは、利用者に関係する要点を説明します。
 
-### 安全判定の要約
+### 「SDカード再利用可能」と表示するための条件
 
-| 条件 | green に必要か |
+| 確認項目 | 必須 |
 |---|---:|
-| SDカード全体を完全スキャンできた | 必須 |
-| 保存先が source と別 volume / 別 physical device | 必須 |
-| 全対応メディアに size + SHA-256 一致の保存先コピーがある | 必須 |
-| 保存先コピーを durable synchronization できた | 必須 |
-| durable sync 後の fresh SHA-256 が source と一致 | 必須 |
-| source / destination の mount identity が途中で変わっていない | 必須 |
-| 2か所以上にバックアップ済み | 対象外 |
+| SDカード全体を最後までスキャンできた | はい |
+| 保存先がSDカードとは別のボリューム・別の物理デバイスにある | はい |
+| すべての対応メディアについて、サイズとSHA-256が一致する保存先コピーがある | はい |
+| 保存先への書き込み完了をOSへ要求できた | はい |
+| 書き込み完了確認後にもう一度読み直したSHA-256も一致する | はい |
+| コピー元・保存先のマウント状態や物理デバイスが途中で変わっていない | はい |
+| 2か所以上へのバックアップが完了している | 判定対象外 |
 
-### 1. コピー元は immutable
+### 1. SDカード上の元データには手を加えない
 
-SD カード上の対応メディアに対して、アプリは次の操作を行いません。
+対応メディアに対して、Photo Organizer は次の操作を行いません。
 
-- delete
-- move
-- rename
-- truncate
-- replace
-- overwrite
-- metadata 書き換え
+- 削除
+- 移動
+- 名前変更
+- 切り詰め
+- 置き換え
+- 上書き
+- メタデータの書き換え
 
-アプリが自動削除する可能性があるのは、アプリ自身が作成し、まだ最終ファイルになっていない `.partial-*` 一時ファイルだけです。
+アプリが自動的に削除する可能性があるのは、保存先に自分で作成した未確定の `.partial-*` 一時ファイルだけです。
 
-### 2. カード全体を完全に読めなければ進めない
+### 2. カード全体を確認できなければ先へ進まない
 
-SD カードの列挙中に I/O エラー、権限エラー、metadata 取得エラーなどが発生した場合、「見えたファイルだけ」を取り込んで安全とは判定しません。
+SDカードの読み取り中にI/Oエラー、権限エラー、メタデータ取得エラーなどが発生した場合、見えているファイルだけを取り込んで「安全」とは判定しません。
 
-対応メディアをカード全体から確認できたことが安全判定の前提です。
+カード全体にある対応メディアを最後まで確認できたことが、安全判定の前提です。
 
-hidden directory 内の対応メディアも対象です。一方、symlink / reparse point や別 mounted volume はカード外へスキャンが逃げないよう追跡しません。
+隠しフォルダ内の対応メディアも対象です。一方、シンボリックリンク、reparse point、カード内から参照される別のマウント済みボリュームなどは追跡せず、カードの外へスキャンが広がらないようにしています。
 
-### 3. 保存先は SD カードと物理的に別でなければならない
+### 3. 保存先はSDカードとは物理的に別でなければならない
 
-path 文字列が違うだけでは不十分です。
+フォルダのパスが違うだけでは、独立した保存先とはみなしません。
 
-Photo Organizer は source と destination について次を確認します。
+コピー元と保存先について、次の情報を確認します。
 
-- mounted volume identity
-- physical storage-device identity
-- process-local mount-session identity
+- マウントされたボリュームの識別情報
+- 物理ストレージデバイスの識別情報
+- 現在のアプリ起動中だけ有効なマウントセッションの識別情報
 
-同じ SD カードの別 partition や、同じ物理ディスク上の別 volume は独立したバックアップ先として認めません。
+そのため、同じSDカードの別パーティションや、同じ物理ディスク上の別ボリュームは独立した保存先として扱いません。
 
-また、destination path に symlink / junction / reparse point などの alias が含まれる場合も fail-closed で拒否します。
+また、保存先のパスにシンボリックリンク、junction、reparse pointなどの別名参照が含まれる場合も、安全を確認できないため処理を拒否します。
 
-### 4. 重複は timestamp やファイル名ではなく実 bytes で判定
+### 4. 重複は名前ではなく実際の内容で判断する
 
 重複判定は原則として、
 
 ```text
-file size + SHA-256
+ファイルサイズ + SHA-256
 ```
 
 で行います。
 
-同名でも内容が違えば別ファイルです。別名でも内容が完全一致すれば既に保存済みのデータとして扱えます。
+同じ名前でも中身が違えば別ファイルです。逆に、名前が違っても中身が完全に同一なら、すでに保存済みのデータとして扱えます。
 
-### 5. 新規コピーは一時ファイル経由で確定
+### 5. 新しいファイルは一時ファイルを経由して確定する
 
-新しいファイルは概ね次の順序で処理します。
+新規ファイルは、おおむね次の順序で処理します。
 
-1. source のサイズと SHA-256 を取得
-2. 保存先と同じ directory に `.partial-*` を `CreateNew` で作成
-3. source から一時ファイルへコピー
-4. 一時ファイルを flush
-5. 一時ファイルのサイズと SHA-256 を source と比較
-6. source を再度読み、コピー中に内容が変化していないことを確認
-7. 既存ファイルを上書きしない final move を実行
-8. final metadata を設定
-9. OS ごとの durable commit を実行
-10. final path をもう一度サイズ・SHA-256 検証
+1. コピー元のサイズとSHA-256を取得
+2. 保存先と同じフォルダに `.partial-*` を新規作成
+3. コピー元から一時ファイルへコピー
+4. 一時ファイルの書き込みをフラッシュ
+5. 一時ファイルのサイズとSHA-256をコピー元と比較
+6. コピー元をもう一度読み、コピー中に内容が変化していないことを確認
+7. 既存ファイルを上書きしない方法で最終ファイル名へ確定
+8. 最終メタデータを設定
+9. OSごとの方法で保存先への書き込み完了を要求
+10. 最終ファイルをもう一度読み、サイズとSHA-256を確認
 
-途中で失敗しても、既存の library file を削除して帳尻を合わせることはしません。
+途中で失敗しても、すでに保存先にあるファイルを削除して帳尻を合わせることはしません。
 
-### 6. 「SHAが一致した」だけでは green にしない
+### 6. 「SHA-256が一致した」だけでは再利用可能にしない
 
-OS や storage device の cache から読み出せたデータが、必ずしも電源断後も永続媒体に残っているとは限りません。
+OSやストレージの書き込みキャッシュから読み出せる状態でも、電源断後までデータが永続的に残るとは限りません。
 
-そのため green の SD 再利用判定に **durable destination commit** を要求します。
+そのため Photo Organizer は、保存先への**永続化確認（durable commit）**まで要求します。
 
 #### Windows
 
-- final move は no-replace
+- 既存ファイルを置き換えない方法で最終ファイルへ移動
 - `MOVEFILE_WRITE_THROUGH` を使用
-- final metadata 設定後、final file handle を disk へ flush
+- 最終メタデータ設定後、ファイルハンドルをディスクへフラッシュ
 
 #### macOS
 
-- no-clobber final move
-- parent directory entry を同期
-- final file へ `F_FULLFSYNC`
+- 既存ファイルを置き換えない方法で最終ファイルへ移動
+- 親ディレクトリのエントリを同期
+- 最終ファイルに `F_FULLFSYNC` を実行
 
-durability を OS へ要求できなかった場合は、現在 SHA-256 が一致していても再利用可能とは判定しません。
+OSへ永続化を要求できなかった場合は、現時点でSHA-256が一致していても「SDカード再利用可能」とは判定しません。
 
-### 7. durable sync 後にもう一度 SHA-256 を読む
+### 7. 書き込み完了確認のあとに、もう一度SHA-256を計算する
 
-destination を hash した後に durable sync して終わりではありません。
+保存先をハッシュしてから書き込み完了を要求し、そのまま終了するわけではありません。
 
-外部プロセスがその隙間で保存先を変更する可能性まで考慮し、**durable synchronization 後に fresh handle から destination SHA-256 を再計算**します。
+その間に別のプロセスが保存先を書き換える可能性まで考慮し、**永続化確認のあとに新しく開いたファイルからSHA-256をもう一度計算**します。
 
-これにより、古い hash と新しい bytes の組み合わせで green になる TOCTOU を防ぎます。
+これにより、「確認に使ったハッシュは古いのに、実際のファイルは後から変わっていた」という競合を防ぎます。
 
-### 8. コピー後に SD カードをもう一度完全スキャン
+### 8. 取り込み後にSDカード全体をもう一度スキャンする
 
-コピー開始時に見えていたファイルだけを確認して終わりではありません。
+コピー開始時に見えていたファイルだけを確認して終わりにはしません。
 
-取り込み後にカード全体を再スキャンし、次を確認します。
+取り込み後にSDカード全体を再スキャンし、次を確認します。
 
-- 最初に見えていた対応メディアが消えていない
-- 新たに対応メディアが増えていれば、それも最終検証対象に含める
-- 現在カードに見えている対応メディア全件について独立した destination copy が存在する
-- destination copy が size + SHA-256 一致する
-- destination copy が durably synchronized されている
-- source / destination storage identity が途中で変化していない
+- 最初に見えていた対応メディアが途中で消えていない
+- 新しい対応メディアが増えていれば、それも最終確認の対象に含める
+- 現在カードに見えている対応メディアすべてに、独立した保存先コピーがある
+- 保存先コピーのサイズとSHA-256が一致する
+- 保存先への書き込み完了が確認できている
+- コピー元・保存先のストレージ識別情報が途中で変化していない
 
-すべて成立した場合だけ green になります。
+すべての条件が成立したときだけ、「SDカード再利用可能」と表示します。
 
 ---
 
-## 緑の「SDカード再利用可能」が意味するもの
+## 「SDカード再利用可能」が意味する範囲
 
-緑色の状態は、Photo Organizer が対応対象としている現在の JPG / JPEG・設定済み RAW・MOV / MP4 について、**指定保存先1か所への独立コピーを実 bytes で検証し、永続媒体への同期まで要求できた**ことを意味します。
+緑の表示は、Photo Organizer が対応している JPG / JPEG、設定済みRAW、MOV / MP4について、**指定した保存先1か所に内容が一致する独立コピーがあり、OSへ書き込み完了も要求できた**ことを意味します。
 
-### green が保証する範囲
+### 確認できていること
 
-- カード上で現在見えている対応メディアを完全スキャン済み
-- 対応メディアごとに独立した destination file を確認済み
-- destination size / SHA-256 を確認済み
-- durable synchronization を OS へ要求済み
-- durable sync 後に fresh SHA-256 を再確認済み
-- storage identity の途中差し替えを検出していない
+- カード上で現在見えている対応メディアをすべてスキャン済み
+- 各メディアに対応する保存先ファイルを確認済み
+- 保存先のサイズとSHA-256を確認済み
+- 保存先への永続化をOSへ要求済み
+- 永続化確認後にSHA-256をもう一度確認済み
+- コピー中にストレージが差し替わっていないことを確認済み
 
-### green が意味しないこと
+### 意味しないこと
 
-- 2か所以上にバックアップ済み
-- クラウドへ同期済み
-- 保存先ストレージ自体が壊れない
-- RAID / 3-2-1 バックアップが完成した
-- 将来の bit rot まで保証される
+- 2か所以上にバックアップできている
+- クラウドへ同期できている
+- 保存先ストレージ自体が故障しない
+- RAIDや3-2-1バックアップが完成している
+- 将来のビット腐敗（bit rot）まで防げる
 
-重要な撮影データでは、green 確認後も別媒体・NAS・クラウドなどへの追加バックアップを推奨します。
+重要な撮影データでは、Photo Organizerで取り込んだあとも、別媒体・NAS・クラウドなどへの追加バックアップを推奨します。
 
 ---
 
 ## ストレージ差し替えへの対策
 
-`D:\` や `/Volumes/CAMERA` といった path は、同じ文字列でも途中で別 device へ差し替わることがあります。
+`D:\` や `/Volumes/CAMERA` のようなパスは、文字列が同じでも、途中で別のデバイスが同じ場所へマウントされることがあります。
 
-Photo Organizer では path だけを identity として使いません。
+そのため Photo Organizer は、パスだけをストレージの識別情報として使いません。
 
 ### Windows
 
-volume identity に加えて、logical volume → partition → physical disk の対応を追跡します。
+ボリュームの識別情報に加え、論理ボリューム → パーティション → 物理ディスクの対応を追跡します。
 
 ### macOS
 
-`diskutil info -plist` から persistent volume identity と whole-disk identity を取得します。
+`diskutil info -plist` から、ボリュームやパーティションの識別情報と、元になっている物理ディスクの識別情報を取得します。
 
-`diskutil` の plist 解釈は platform adapter 内の純粋 parser として分離し、欠損・型違い・fallback 順序をテストしています。外部 command 自体も bounded execution とし、stdout / stderr を同時に drain しながら timeout します。
+`diskutil` の出力を読み取る処理は、OSコマンドを実行する部分と plist を解釈する部分に分離しています。plistの項目欠落、型違い、識別情報の優先順位、壊れたXMLなどは単体テストで確認します。
 
-取得に失敗した場合は「推測で続行」せず identity unavailable として fail-closed にします。
+また、`diskutil` などの外部コマンドは実行時間に上限を設け、標準出力と標準エラーを同時に読み取りながら待機します。OSから必要な情報を取得できなかった場合は、推測で処理を続けず安全側に停止します。
 
-さらに、OS の persistent identifier とは別に process-local な mount session ID を持ち、取り外し・再接続・physical mapping 変更が発生した場合は以前の scan approval を無効化します。
+さらに、OSが持つ永続的な識別情報とは別に、アプリ起動中だけ有効なマウントセッションIDを管理しています。SDカードの取り外し・再接続や物理デバイスとの対応関係が変わった場合は、以前のスキャン結果を無効にします。
 
 詳しくは [`docs/STORAGE_IDENTITY.md`](docs/STORAGE_IDENTITY.md) を参照してください。
 
@@ -434,42 +441,40 @@ volume identity に加えて、logical volume → partition → physical disk �
 
 ## 常駐動作と複数SDカード
 
-Photo Organizer は Windows の system tray / macOS の menu bar に常駐できます。
+Photo Organizer は Windows のシステムトレイ、macOS のメニューバーに常駐できます。
 
-- idle 中にメイン window を閉じると、監視を続けたまま window を隠します
-- tray / menu bar から window を再表示できます
-- 明示的な Quit で終了できます
-- import 中の通常終了は拒否されます
-- `--background` 起動に対応します
-- login auto-start と background start を個別に設定できます
-- background 中でも有効な camera card を検知すると workflow window を表示できます
+- 処理していないときにメインウィンドウを閉じると、監視を続けたままウィンドウだけを隠します
+- トレイ / メニューバーからウィンドウを再表示できます
+- 明示的に「終了」を選べばアプリを終了できます
+- 取り込み中は、通常の終了操作で処理を中断しないよう終了を拒否します
+- `--background` 付き起動に対応します
+- ログイン時の自動起動と、起動時にウィンドウを出さないバックグラウンド起動を個別に設定できます
+- バックグラウンド中でも有効なカメラカードを検出すると、取り込み画面を表示できます
 
-処理中に2枚目の camera card が接続されても、active card を勝手に変更しません。
+処理中に2枚目のカメラカードが接続されても、処理対象を勝手に切り替えません。2枚目は待機列に入り、現在の処理が終わったあとに扱われます。
 
-2枚目は queue へ入り、現在の処理が終了・reset された後に扱われます。
-
-mount event や実際の login startup は OS 境界そのものなので、unit test だけに依存せず release acceptance でも実機確認します。
+カードのマウント / アンマウントや、実際のログイン時自動起動はOSそのものに関わるため、単体テストだけではなく実機のリリース受け入れ試験でも確認します。
 
 ---
 
 ## 設定
 
-初期保存先は OS の **Pictures / ピクチャ** directory です。
+初期保存先はOSの **Pictures / ピクチャ** フォルダです。
 
-主な設定:
+主な設定は次のとおりです。
 
 - 保存先
-- RAW 拡張子
-- ログイン時自動起動
+- RAW拡張子
+- ログイン時の自動起動
 - バックグラウンド起動
 
-通常設定は OS の Local Application Data 配下にある `PhotoOrganizer/settings.json`、background 設定は `PhotoOrganizer/background-settings.json` に保存されます。
+通常設定はOSの Local Application Data 配下にある `PhotoOrganizer/settings.json`、バックグラウンド関連の設定は `PhotoOrganizer/background-settings.json` に保存します。
 
-安全判定そのものは設定ファイルへ永続化しません。
+SDカードの安全判定結果そのものは設定ファイルへ保存しません。
 
-**アプリを再起動した時点で、以前の green 状態は引き継がれません。**
+**アプリを再起動すると、前回の「SDカード再利用可能」状態は引き継がれません。**
 
-新しい process では再度 scan / import / verification が必要です。
+新しく起動したあとは、あらためてスキャン・取り込み・最終確認が必要です。
 
 ---
 
@@ -481,32 +486,32 @@ mount event や実際の login startup は OS 境界そのものなので、unit
 
 自分の環境に合う成果物を選びます。
 
-| Platform | Architecture | 配布形式 |
+| OS | CPU | 配布形式 |
 |---|---|---|
 | Windows | x64 | self-contained ZIP |
 | Windows | ARM64 | self-contained ZIP |
-| macOS | Apple Silicon / arm64 | signed + notarized DMG |
-| macOS | Intel / x64 | signed + notarized DMG |
+| macOS | Apple Silicon / arm64 | 署名・公証済みDMG |
+| macOS | Intel / x64 | 署名・公証済みDMG |
 
-self-contained build のため、正式配布 ZIP / DMG の実行に .NET SDK を別途インストールすることは想定していません。
+self-contained build のため、正式配布されたZIP / DMGを利用するだけなら、.NET SDKを別途インストールする想定ではありません。
 
-### stable release がまだない場合
+### GitHub Releases に正式版がない場合
 
-この repository は、署名済み build が成功しただけでは stable release としません。
+Photo Organizer は、署名済みビルドが成功しただけでは正式版として公開しません。
 
 ```text
-main の exact commit
+main の同一コミット
       ↓
-署名済み Prerelease candidate
+署名済みプレリリース
       ↓
-clean machine / real SD card acceptance
+クリーン環境・実SDカードで受け入れ試験
       ↓
-acceptance evidence 記録
+試験結果を記録
       ↓
-同じ artifact を stable / Latest へ promotion
+同じ成果物を正式版 / Latestへ昇格
 ```
 
-GitHub Releases に stable release が存在しない場合、一般利用者向け production build はまだ公開前です。
+この手順により、CIが通っただけの未検証ビルドがそのまま一般配布されないようにしています。
 
 詳しくは [`docs/RELEASE.md`](docs/RELEASE.md) と [`docs/RELEASE_ACCEPTANCE.md`](docs/RELEASE_ACCEPTANCE.md) を参照してください。
 
@@ -524,55 +529,55 @@ dotnet restore PhotoOrganizer.slnx
 dotnet run --project src/PhotoOrganizer.App/PhotoOrganizer.App.csproj -c Release
 ```
 
-### build
+### ビルド
 
 ```bash
 dotnet build src/PhotoOrganizer.App/PhotoOrganizer.App.csproj -c Release
 ```
 
-### Core tests
+### 共通Coreのテスト
 
 ```bash
 dotnet test tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj -c Release
 ```
 
-### platform adapter tests
+### OS固有処理のテスト
 
 ```bash
 dotnet test tests/PhotoOrganizer.App.Tests/PhotoOrganizer.App.Tests.csproj -c Release
 ```
 
-### I/O benchmark
+### I/Oベンチマーク
 
 ```bash
 dotnet run --project tools/PhotoOrganizer.IoBenchmark/PhotoOrganizer.IoBenchmark.csproj -c Release
 ```
 
-ローカル build は production 署名・notarization 済み配布物とは別物です。第三者へ正式配布する場合は release workflow を使用してください。
+ローカルでビルドしたものは、正式な署名・公証を通した配布物とは別物です。第三者へ正式配布する場合はリリース用ワークフローを使用してください。
 
 ---
 
 ## アーキテクチャ
 
-Photo Organizer は、OS によって安全ロジックが分岐しないように設計しています。
+Photo Organizer は、安全性に関わる中心ロジックがOSごとに分岐しないように設計しています。
 
 ```text
 ┌─────────────────────────────────────────────┐
 │ PhotoOrganizer.App                          │
 │ Avalonia UI / tray / menu bar / settings    │
-│ startup / storage platform adapters          │
+│ startup / storage platform adapters         │
 └──────────────────────┬──────────────────────┘
                        │
                        v
 ┌─────────────────────────────────────────────┐
 │ PhotoOrganizer.Core                         │
 │                                             │
-│ - media classification                      │
-│ - complete scan                             │
-│ - duplicate detection                       │
-│ - safe copy transaction                     │
-│ - durable destination verification          │
-│ - SD reuse safety state machine             │
+│ - media classification                     │
+│ - complete scan                            │
+│ - duplicate detection                      │
+│ - safe copy transaction                    │
+│ - durable destination verification         │
+│ - SD reuse safety state machine            │
 └──────────────────────┬──────────────────────┘
                        │
                        v
@@ -584,26 +589,26 @@ Photo Organizer は、OS によって安全ロジックが分岐しないよう�
 └─────────────────────────────────────────────┘
 ```
 
-Core は WinForms、AppKit、SwiftUI、Windows Management API、Avalonia UI type へ依存しません。
+`PhotoOrganizer.Core` は WinForms、AppKit、SwiftUI、Windows Management API、Avalonia UI の型へ依存しません。
 
-UI / platform layer から Core へ依存し、Core から OS 固有 layer へ逆依存しない方向を維持します。
+依存方向はアプリ / OS固有層 → Core とし、CoreからOS固有実装へ逆向きに依存しない構成を維持しています。
 
 詳細は [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) を参照してください。
 
 ---
 
-## Repository構成
+## リポジトリ構成
 
 ```text
 PhotoOrganizer/
 ├─ src/
-│  ├─ PhotoOrganizer.Core/        # 共有の安全・取り込みロジック
-│  └─ PhotoOrganizer.App/         # Avalonia desktop app + platform adapters
+│  ├─ PhotoOrganizer.Core/        # 共通の安全・取り込みロジック
+│  └─ PhotoOrganizer.App/         # Avaloniaアプリ + OS固有処理
 ├─ tests/
-│  ├─ PhotoOrganizer.Core.Tests/  # cross-platform safety regression
-│  └─ PhotoOrganizer.App.Tests/   # OS adapter / diskutil / startup / identity tests
+│  ├─ PhotoOrganizer.Core.Tests/  # 共通安全ロジックの回帰テスト
+│  └─ PhotoOrganizer.App.Tests/   # OS固有処理 / diskutil / startup / storage識別テスト
 ├─ tools/
-│  └─ PhotoOrganizer.IoBenchmark/ # SHA-256 / destination lookup I/O benchmark
+│  └─ PhotoOrganizer.IoBenchmark/ # SHA-256 / 保存先検索のI/Oベンチマーク
 ├─ docs/
 │  ├─ ARCHITECTURE.md
 │  ├─ DATA_SAFETY.md
@@ -611,7 +616,7 @@ PhotoOrganizer/
 │  ├─ RELEASE.md
 │  ├─ RELEASE_ACCEPTANCE.md
 │  └─ STORAGE_IDENTITY.md
-├─ Scripts/                       # repository / release configuration helpers
+├─ Scripts/                       # リポジトリ / リリース設定用スクリプト
 └─ .github/workflows/             # CI / CodeQL / benchmark / release
 ```
 
@@ -619,64 +624,66 @@ PhotoOrganizer/
 
 ## テストとCI
 
-Photo Organizer は、**Core の安全契約・platform adapter・実OS・package・release contract・実機 acceptance** を別々の層で検証します。
+Photo Organizer は、1種類のテストだけで安全性を証明しようとはしていません。
+
+**共通ロジック、OS固有処理、実OS、配布物、リリース手順、実機試験**を別々の層で確認します。
 
 ### テストの役割分担
 
-| 層 | 主な対象 |
+| 層 | 主な確認内容 |
 |---|---|
-| `PhotoOrganizer.Core.Tests` | complete scan、source immutability、重複判定、copy transaction、format safety、mount session、race / failure handling |
-| `PhotoOrganizer.App.Tests` | Windows / macOS storage identity、`diskutil` plist parser、bounded process execution、startup registration format、実OS volume resolution |
-| Package smoke | Windows x64/ARM64 ZIP、macOS arm64/x64 DMG の生成・展開 / mount |
-| CodeQL | C# static analysis |
-| I/O Benchmark | SHA-256 / destination lookup の読み取り量回帰 |
-| Release acceptance | 実SDカード、実ストレージ、unplug、logout/login、Gatekeeper / Authenticode、durability interruption |
+| `PhotoOrganizer.Core.Tests` | カード全体のスキャン、コピー元不変、重複判定、コピー処理、形式判定、マウントセッション、競合・失敗時の安全停止 |
+| `PhotoOrganizer.App.Tests` | Windows / macOSのストレージ識別、`diskutil` plistの解釈、外部プロセスのタイムアウト、自動起動設定の生成、実OS上のボリューム解決 |
+| 配布物のスモークテスト | Windows x64 / ARM64 ZIP、macOS arm64 / x64 DMGの生成・展開 / マウント |
+| CodeQL | C#コードの静的解析 |
+| I/Oベンチマーク | SHA-256計算や保存先検索で読み取り量が悪化していないか確認 |
+| リリース受け入れ試験 | 実SDカード、実ストレージ、強制取り外し、ログアウト / ログイン、Gatekeeper / Authenticode、書き込み耐久性 |
 
-platform adapter tests は、OS API をすべて mock 化する方針ではありません。
+### OS固有処理も、できるだけ単体テストできる形に分ける
 
-たとえば macOS storage identity は、
+OS APIをすべてモック化するのではなく、**OSへ問い合わせる部分と、結果を判断する部分を分離**しています。
+
+たとえばmacOSのストレージ識別は次の構造です。
 
 ```text
-diskutil subprocess
+diskutil を実行
         ↓
 BoundedProcessRunner
         ↓
-raw plist
+plist の生データ
         ↓
 MacDiskutilInfoParser
         ↓
-volume / physical identity
+ボリューム / 物理デバイスの識別情報
 ```
 
-のように、**OS コマンド実行部分と純粋な解釈ロジックを分離**しています。
+実際のmacOSランナーでは `diskutil` が正しく動くことを確認し、plistの項目欠落・型違い・優先順位・壊れたXMLなどは高速な単体テストで確認します。
 
-これにより、実 runner 上で `diskutil` が動くことを integration test しつつ、plist の欠損・型違い・fallback 順序・malformed XML は高速な unit test で網羅できます。
+自動起動についても同様で、実際にRegistryやLaunchAgentへ書き込む処理と、書き込む内容を組み立てる処理を分離しています。
 
-同様に startup registration も、実際の Registry / LaunchAgent mutation と、書き込む command / plist の生成を分けてテストします。
+### 通常のCIで確認するもの
 
-### 通常CIで確認するもの
+- 共通Coreの安全テスト
+- コピー元を変更しないことの回帰テスト
+- 同名・別内容ファイルの衝突処理
+- SHA-256による重複判定
+- シンボリックリンク / junction経由の保存先拒否
+- 入れ子になった別マウント先をスキャンしないこと
+- ボリューム / 物理デバイス / マウントセッションの差し替え検知
+- 書き込み完了確認に失敗した場合の安全停止
+- 書き込み完了確認中に保存先が変化した場合の再ハッシュ
+- Windows / macOSのストレージ識別テスト
+- `diskutil` plistの欠損・不正入力・識別情報の優先順位
+- 外部プロセスのタイムアウトとstdout / stderrの読み取り
+- 自動起動用コマンド / LaunchAgent plistの生成
+- デスクトップアプリのビルド
+- Windows x64 / ARM64パッケージのスモークテスト
+- macOS arm64 / x64 DMGのスモークテスト
+- リリースワークフローの安全条件
+- CodeQL静的解析
+- SHA-256 / 保存先検索のI/Oベンチマーク
 
-- shared Core safety tests
-- source immutability regression
-- same-name / different-bytes collision handling
-- SHA-256 duplicate detection
-- symlink / junction alias rejection
-- nested mounted-volume traversal rejection
-- volume / physical-device / mount-session replacement detection
-- durability failure時の fail-closed
-- durable sync 中に destination が変化した race の再hash検証
-- Windows / macOS platform storage identity tests
-- `diskutil` plist parser の fallback / malformed input
-- subprocess timeout / stdout・stderr pipe handling
-- startup registration command / LaunchAgent plist generation
-- unified desktop app build
-- Windows x64 / ARM64 package smoke
-- macOS arm64 / x64 DMG smoke
-- release workflow contract validation
-- CodeQL static analysis
-- SHA-256 I/O benchmark
-
-workflows:
+ワークフロー:
 
 ```text
 .github/workflows/ci.yml
@@ -686,45 +693,45 @@ workflows:
 .github/workflows/promote-release.yml
 ```
 
-安全性に関する bug は、可能な限り再現 test を追加してから修正します。
+データ安全性に関わる不具合は、可能な限り再現テストを追加したうえで修正する方針です。
 
 ---
 
-## Release設計
+## リリース設計
 
-Windows と macOS は **同じ version・同じ source commit** から release します。
+Windows版とmacOS版は、**同じバージョン・同じソースコミット**から作成します。
 
-production release は fail-closed です。
+正式版の公開条件は、安全を確認できない場合に公開しない方針です。
 
-- signing credential が不足 → publish しない
-- Windows だけ成功 → publish しない
-- macOS だけ成功 → publish しない
-- checksum 不一致 → publish しない
-- signing / notarization 失敗 → publish しない
-- real-device acceptance 未完了 → stable へ promotion しない
+- 署名用の認証情報がない → 公開しない
+- Windows版だけ成功 → 公開しない
+- macOS版だけ成功 → 公開しない
+- チェックサムが一致しない → 公開しない
+- 署名 / 公証に失敗 → 公開しない
+- 実機受け入れ試験が終わっていない → 正式版へ昇格しない
 
-release authority も分離されています。
+公開権限も分けています。
 
-- `production-signing` — signing / notarization credential を保持
-- `production-release` — acceptance 済み candidate を stable へ promotion する権限
+- `production-signing` — 署名・公証に必要な認証情報を保持
+- `production-release` — 受け入れ試験済みのプレリリースを正式版へ昇格する権限
 
-署名済み candidate 作成と stable promotion を別 workflow へ分けることで、CI 成功だけで一般配布が進まない構成です。
+署名済み候補の作成と正式版への昇格を別ワークフローに分けることで、CIが成功しただけで一般配布まで進まないようにしています。
 
 ---
 
 ## セキュリティと脆弱性報告
 
-次の問題は特に重大な release blocker として扱います。
+次のような問題は、特に重大なリリース阻害要因として扱います。
 
-- source media の削除・変更
-- destination 既存ファイルの上書き
-- false duplicate detection
-- false SD-reuse approval
-- selected storage 外への path traversal
-- signing bypass
-- arbitrary code execution
+- SDカード上の元データが削除・変更される
+- 保存先の既存ファイルが上書きされる
+- 別データを重複と誤判定する
+- 安全でない状態を「SDカード再利用可能」と誤判定する
+- 選択したストレージの外へパスが抜ける
+- 署名検証を回避できる
+- 任意コード実行につながる
 
-データ消失の再現詳細、秘密鍵、certificate、password、token、実際のユーザー写真などを public Issue へ投稿しないでください。
+データ消失の再現に使った実写真、秘密鍵、証明書、パスワード、トークンなどは公開Issueへ投稿しないでください。
 
 報告方法は [`SECURITY.md`](SECURITY.md) を参照してください。
 
@@ -732,113 +739,117 @@ release authority も分離されています。
 
 ## 制限事項と注意点
 
-### 1つの保存先はバックアップ戦略そのものではない
+### 1つの保存先だけで、完全なバックアップになるわけではない
 
-Photo Organizer は選択した保存先コピーの整合性を厳格に確認しますが、保存先 device 自体が壊れればデータを失う可能性があります。
+Photo Organizer は、選んだ保存先に正しくコピーできたことを厳格に確認します。
 
-重要データでは別媒体・NAS・cloud 等を組み合わせた追加バックアップを用意してください。
+ただし、その保存先ストレージ自体が故障すればデータを失う可能性があります。重要な撮影データでは、別媒体・NAS・クラウドなどを組み合わせた追加バックアップを用意してください。
 
-### ネットワーク / 仮想 / 特殊filesystem
+### ネットワークドライブ・仮想ファイルシステム・特殊なマウント先
 
-このアプリは source と destination の物理的な独立性を安全判定へ利用します。
+このアプリは、コピー元と保存先が物理的に独立していることを安全判定に使います。
 
-そのため、physical-device identity を OS から確立できない network share、virtual filesystem、特殊 mount などでは fail-closed となる場合があります。
+そのため、OSから物理デバイスを安全に特定できないネットワーク共有、仮想ファイルシステム、特殊なマウント先などでは処理を拒否する場合があります。
 
-「書き込めるから安全な保存先として使える」とは限りません。
+「書き込める」ことと「安全な保存先として確認できる」ことは別です。
 
-### storage firmware の保証まではできない
+### ストレージのファームウェアまでは保証できない
 
-Photo Organizer は Windows / macOS が提供する durability primitive を使用しますが、device firmware が flush 要求に対して不正な成功を返すような hardware failure まで検出できるわけではありません。
+Photo Organizer は Windows / macOS が提供する書き込み完了確認の仕組みを使いますが、ストレージ側のファームウェアがフラッシュ要求に対して誤った成功を返すようなハードウェア故障までは検出できません。
 
-production release では、使い捨て destination を用いた abrupt disconnect → remount → independent rehash の real-device acceptance も要求しています。
+正式版の受け入れ試験では、使い捨ての保存先ストレージを使い、書き込み完了後に意図的に取り外す → 再接続する → 独立した方法でハッシュを再確認する試験も要求しています。
 
 ---
 
 ## よくある質問
 
-### Q. 緑になったら SD カードをフォーマットしていい？
+### Q. 緑になったらSDカードをフォーマットしていい？
 
-Photo Organizer の対応対象ファイルについては、選択保存先への実 bytes 一致と durable synchronization まで確認済みという判定です。
+Photo Organizer が対応しているファイルについては、選んだ保存先に内容が一致するコピーがあり、書き込み完了まで確認した状態です。
 
-ただし green は二重バックアップの意味ではありません。重要撮影では保存先側の追加バックアップも推奨します。
+ただし、緑表示は二重バックアップ完了を意味しません。重要な撮影では、保存先側の追加バックアップも推奨します。
 
-### Q. コピーが100%になったら SD カードを抜いていい？
+### Q. コピーが100%になったらSDカードを抜いていい？
 
-いいえ。**green の「SDカード再利用可能」が表示されるまで待ってください。**
+いいえ。**緑の「SDカード再利用可能」が表示されるまで待ってください。**
 
-コピー後にも complete rescan、fresh SHA-256、durable synchronization、storage identity の最終確認があります。
+コピー後にも、カード全体の再スキャン、保存先のSHA-256再確認、書き込み完了確認、ストレージ差し替え確認があります。
 
-### Q. Photo Organizer が SD カードを自動で消すことはある？
+### Q. Photo OrganizerがSDカードを自動で消すことはある？
 
-ありません。アプリに format / erase 機能はありません。
+ありません。フォーマットや消去を行う機能はありません。
 
-### Q. XMP sidecar も保存される？
+### Q. XMPサイドカーも保存される？
 
-現在は保存されません。XMP / XML / TXT などは取り込み・SD 再利用判定の対象外です。
+現在は保存されません。XMP / XML / TXTなどは取り込み・SDカード再利用判定の対象外です。
 
-### Q. SD カードに前回の写真を残したまま再度取り込める？
+### Q. SDカードに前回の写真を残したまま、もう一度取り込める？
 
-できます。保存先全体から size + SHA-256 一致を確認できた既存データは skip し、新しい bytes だけを取り込みます。
+できます。保存先全体からサイズとSHA-256が一致する既存データを確認できた場合は再コピーせず、新しい内容だけを取り込みます。
 
-### Q. 同名写真があると上書きされる？
+### Q. 同じ名前の写真があると上書きされる？
 
-されません。同じ bytes なら duplicate、違う bytes なら `_2`, `_3` ... の別名で保持します。
+されません。内容が同じなら保存済みとして扱い、内容が違えば `_2`, `_3` ... を付けた別名で保存します。
 
 ### Q. 同じ内容の写真が別名で存在したら？
 
-size + SHA-256 が一致する完全同一 bytes であれば、既に保存済みの内容として扱います。ファイル名は重複判定の主キーではありません。
+サイズとSHA-256が一致する完全に同じデータであれば、すでに保存済みとして扱います。ファイル名だけで重複判定することはありません。
 
-### Q. 保存先を同じ SD カードの別 partition にしてもいい？
+### Q. 保存先を同じSDカードの別パーティションにしてもいい？
 
-できません。同じ physical storage device は独立した backup location とみなさず、取り込み前に拒否します。
+できません。同じ物理ストレージ上にあるため、独立した保存先とはみなしません。
 
-### Q. NAS を保存先にできる？
+### Q. NASを保存先にできる？
 
-physical-device identity を安全に確立できない network share は fail-closed になる可能性があります。現在の安全契約は、source と destination の物理的独立性を OS から確認できる保存先を前提にしています。
+OSから物理デバイスを安全に特定できないネットワーク共有は、現在の安全契約では拒否される可能性があります。
 
-### Q. アプリを再起動したら前回の green は残る？
+Photo Organizer は「書き込めるか」だけでなく、「SDカードとは別の物理ストレージだと確認できるか」まで判定するためです。
 
-残りません。安全状態は永続化せず、新しい process では再度検証が必要です。
+### Q. アプリを再起動したら、前回の緑表示は残る？
 
-### Q. 2枚の SD カードを同時に挿したら？
+残りません。安全状態は保存せず、アプリを起動し直したあとは再度確認が必要です。
 
-処理中の active card は切り替えません。2枚目は待機 queue へ入り、現在の処理が終わった後に扱います。
+### Q. SDカードを2枚同時に挿したら？
+
+処理中のカードは途中で切り替えません。2枚目は待機列に入り、現在の処理が終わったあとに扱います。
 
 ### Q. Windows版とmacOS版で安全判定は違う？
 
-基本的な安全契約は共通 Core にあります。OS ごとに異なるのは、volume / physical-device identity、durability primitive、startup / resident integration などの platform adapter 部分です。
+基本的な安全ルールは共通Coreで同じです。
+
+OSごとに異なるのは、ストレージの識別方法、書き込み完了を確認する仕組み、自動起動や常駐処理など、OS固有の部分です。
 
 ---
 
 ## 移行について
 
-この repository は、旧 Windows 版・macOS 版を統合した canonical implementation です。
+このリポジトリは、旧Windows版と旧macOS版を統合した現在の実装です。
 
-- [`PeachGumi/PhotoOrganizer-win`](https://github.com/PeachGumi/PhotoOrganizer-win) — original Windows implementation
-- [`PeachGumi/PhotoOrganizer-mac`](https://github.com/PeachGumi/PhotoOrganizer-mac) — hardened macOS safety reference
+- [`PeachGumi/PhotoOrganizer-win`](https://github.com/PeachGumi/PhotoOrganizer-win) — 旧Windows版
+- [`PeachGumi/PhotoOrganizer-mac`](https://github.com/PeachGumi/PhotoOrganizer-mac) — macOS版で強化してきた安全設計の参照元
 
-旧実装で得た platform 固有の知見を引き継ぎつつ、現在は shared Core を安全仕様の source of truth としています。
+旧実装で得たOS固有の知見を引き継ぎながら、現在は共通Coreを安全仕様の中心にしています。
 
-旧 repository は、統合版の署名済み candidate が real-device acceptance を完了し stable へ promotion されるまで reference として保持します。
+旧リポジトリは、統合版の署名済み候補が実機受け入れ試験を完了し、正式版として公開されるまで参照用として保持します。
 
-意図的な behavior 差分と retirement 条件は [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md) を参照してください。
+意図的な動作差分と旧版を終了する条件は [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md) を参照してください。
 
 ---
 
 ## 関連ドキュメント
 
-| Document | 内容 |
+| ドキュメント | 内容 |
 |---|---|
-| [`docs/DATA_SAFETY.md`](docs/DATA_SAFETY.md) | データ安全性の normative contract |
-| [`docs/STORAGE_IDENTITY.md`](docs/STORAGE_IDENTITY.md) | volume / physical device / mount session identity |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | shared Core と platform layer の設計 |
-| [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md) | legacy 版から統合版への移行方針 |
-| [`docs/RELEASE.md`](docs/RELEASE.md) | signing / notarization / prerelease / stable promotion |
-| [`docs/RELEASE_ACCEPTANCE.md`](docs/RELEASE_ACCEPTANCE.md) | clean-machine / real-SD / unplug / login / signing acceptance |
-| [`SECURITY.md`](SECURITY.md) | vulnerability reporting / security policy |
+| [`docs/DATA_SAFETY.md`](docs/DATA_SAFETY.md) | データ安全性に関する正式な仕様 |
+| [`docs/STORAGE_IDENTITY.md`](docs/STORAGE_IDENTITY.md) | ボリューム / 物理デバイス / マウントセッションの識別方法 |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 共通CoreとOS固有層の設計 |
+| [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md) | 旧版から統合版への移行方針 |
+| [`docs/RELEASE.md`](docs/RELEASE.md) | 署名・公証・プレリリース・正式版公開の仕組み |
+| [`docs/RELEASE_ACCEPTANCE.md`](docs/RELEASE_ACCEPTANCE.md) | クリーン環境・実SDカード・取り外し・ログイン・署名に関する受け入れ試験 |
+| [`SECURITY.md`](SECURITY.md) | 脆弱性の報告方法とセキュリティ方針 |
 
 ---
 
-## License
+## ライセンス
 
 [MIT License](LICENSE)
