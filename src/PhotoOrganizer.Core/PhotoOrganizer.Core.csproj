@@ -2,6 +2,7 @@
   <PropertyGroup>
     <AssemblyName>PhotoOrganizer.Core</AssemblyName>
     <RootNamespace>PhotoOrganizer.Core</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
