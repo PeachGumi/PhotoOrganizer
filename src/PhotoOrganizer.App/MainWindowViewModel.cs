@@ -224,7 +224,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             SelectedSdPath = result.Session!.CardRoot;
             RemoveQueuedCard(result.Session.CardRoot);
             UpdateCounts(result.Session.Files);
-            SetNotVerified("完全スキャン済み。取り込みと保存先実ファイル検証が完了するまでSDカードを再利用しないでください。");
+            SetNotVerified("完全スキャン済み。取り込み後の再スキャン、保存先実ファイルのサイズ・SHA-256照合、永続媒体への同期が完了するまでSDカードを再利用しないでください。");
             ProgressLabel = "取り込み準備完了";
             AppendLog($"スキャン完了: {result.Session.Files.Count} 件 / {CountLabel}");
             RequestShowWindow?.Invoke();
@@ -262,7 +262,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                 }
                 if (update.Phase == ImportProgressPhase.Rescanning)
                 {
-                    AppendLog("コピー処理完了。SDカード全体の再スキャンと実bytes検証を開始します。");
+                    AppendLog("コピー処理完了。SDカード全体の再スキャン、実bytes検証、保存先の永続化確認を開始します。");
                 }
             });
 
@@ -282,10 +282,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             {
                 var verified = result.Verification?.Verified ?? 0;
                 SafetyHeadline = "保存先コピー検証済み — SDカード再利用可能";
-                SafetyDetail = $"対象メディア {verified} 件について、取り込み後のSD再スキャンと保存先実ファイルのサイズ・SHA-256一致を確認済みです。これは指定保存先1か所へのコピー検証であり、二重バックアップ済みという意味ではありません。";
+                SafetyDetail = $"対象メディア {verified} 件について、取り込み後のSD再スキャン、保存先実ファイルのサイズ・SHA-256一致、永続媒体への同期（durable commit）を確認済みです。これは指定保存先1か所へのコピー検証であり、二重バックアップ済みという意味ではありません。";
                 SafetyBrush = Brushes.ForestGreen;
-                ProgressLabel = "保存先コピー検証済み";
-                AppendLog($"最終確認完了: {verified} 件を実ファイルとSHA-256照合しました。SDカードを再利用できます。");
+                ProgressLabel = "保存先コピー・永続化検証済み";
+                AppendLog($"最終確認完了: {verified} 件を実ファイルとSHA-256照合し、保存先への永続化を確認しました。SDカードを再利用できます。");
             }
             else
             {
