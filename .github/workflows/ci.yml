@@ -153,9 +153,11 @@ jobs:
           grep -q 'contents: read' "$workflow"
           grep -q 'contents: write' "$workflow"
 
-          # Helpers must build the server-side environment boundary and place secrets
-          # there rather than leaving repository-wide signing credentials behind.
-          grep -q 'environments/${SIGNING_ENVIRONMENT}' "$repo_helper"
+          # Helpers must build server-side main-only environment boundaries and place
+          # signing secrets there instead of leaving repository-wide credentials.
+          grep -q 'SIGNING_ENVIRONMENT="production-signing"' "$repo_helper"
+          grep -q 'RELEASE_ENVIRONMENT="production-release"' "$repo_helper"
+          grep -q 'configure_main_only_environment' "$repo_helper"
           grep -q 'deployment-branch-policies' "$repo_helper"
           grep -q "name='main'" "$repo_helper"
           grep -q 'actions/permissions/workflow' "$repo_helper"
@@ -192,7 +194,19 @@ jobs:
             exit 1
           fi
 
-          # Stable promotion requires an explicit real-device acceptance record.
+          # Stable promotion is also main-only and server-gated. A modified promotion
+          # workflow on another ref must not have authority to mutate a release.
+          grep -q '^  workflow_dispatch:' "$promotion"
+          if grep -q '^  push:' "$promotion"; then
+            echo 'promote-release.yml must remain manually dispatched only.'
+            exit 1
+          fi
+          grep -q 'refs/heads/main' "$promotion"
+          grep -q 'name: production-release' "$promotion"
+          grep -q 'deployment: false' "$promotion"
+          grep -q 'needs: ref-preflight' "$promotion"
+          grep -q 'contents: read' "$promotion"
+          grep -q 'contents: write' "$promotion"
           grep -q 'acceptance_confirmed' "$promotion"
           grep -q 'candidate_commit' "$promotion"
           grep -q 'ACCEPTANCE_EVIDENCE' "$promotion"
