@@ -89,7 +89,7 @@ try {
 
         $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
         if ($hash -notmatch '^[0-9a-f]{64}$') { throw "Invalid package SHA-256: $zip" }
-        Write-Host "Packaging smoke passed for $rid: $zip ($hash)"
+        Write-Host "Packaging smoke passed for ${rid}: $zip ($hash)"
     }
 }
 finally {
