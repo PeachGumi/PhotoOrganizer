@@ -213,6 +213,7 @@ public sealed class StorageSessionTracker
     public StorageSessionIdentity? Capture(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
+        if (!PathSafety.TryValidateDirectFilesystemPath(path, out _)) return null;
         Refresh();
 
         var volume = _provider.ResolveVolumeForPath(path);
