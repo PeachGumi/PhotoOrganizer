@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using System.Security;
 using Microsoft.Win32;
 
 namespace PhotoOrganizer.App;
@@ -84,7 +83,7 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
             return false;
         }
 
-        var command = $"\"{executable}\"" + (startInBackground ? " --background" : string.Empty);
+        var command = StartupRegistrationFormatter.BuildWindowsCommand(executable, startInBackground);
         key.SetValue(WindowsValueName, command, RegistryValueKind.String);
         error = null;
         return true;
@@ -111,27 +110,10 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
 
         var directory = Path.GetDirectoryName(plistPath)!;
         Directory.CreateDirectory(directory);
-        var escapedExecutable = SecurityElement.Escape(executable) ?? executable;
-        var arguments = new List<string>
-        {
-            $"    <string>{escapedExecutable}</string>"
-        };
-        if (startInBackground) arguments.Add("    <string>--background</string>");
-
-        var plist = string.Join('\n',
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
-            "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">",
-            "<plist version=\"1.0\">",
-            "<dict>",
-            $"  <key>Label</key><string>{MacLabel}</string>",
-            "  <key>ProgramArguments</key>",
-            "  <array>",
-            string.Join('\n', arguments),
-            "  </array>",
-            "  <key>RunAtLoad</key><true/>",
-            "</dict>",
-            "</plist>",
-            string.Empty);
+        var plist = StartupRegistrationFormatter.BuildMacLaunchAgentPlist(
+            MacLabel,
+            executable,
+            startInBackground);
 
         var temporary = plistPath + ".tmp-" + Guid.NewGuid().ToString("N");
         File.WriteAllText(temporary, plist);
