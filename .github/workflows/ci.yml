@@ -46,16 +46,57 @@ jobs:
       - name: Build unified desktop app
         run: dotnet build src/PhotoOrganizer.App/PhotoOrganizer.App.csproj --configuration Release --no-restore
 
+  release-contract:
+    name: Release contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Parse workflow YAML and packaging XML
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -e "require 'yaml'; YAML.load_file('.github/workflows/release.yml')"
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          ET.parse('packaging/macos/PhotoOrganizer.entitlements')
+          PY
+
+      - name: Validate release helper syntax
+        shell: bash
+        run: bash -n Scripts/configure_release_secrets.sh
+
+      - name: Enforce fail-closed release contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow=.github/workflows/release.yml
+          for secret in \
+            WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD \
+            MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD DEVELOPER_ID_APPLICATION \
+            APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
+            grep -q "$secret" "$workflow"
+          done
+          grep -q 'needs: \[preflight, windows, macos\]' "$workflow"
+          grep -q 'signtool' "$workflow"
+          grep -q 'notarytool submit' "$workflow"
+          grep -q 'stapler validate' "$workflow"
+          grep -q 'sha256sum -c' "$workflow"
+          grep -q 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' "$workflow"
+          grep -q 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' "$workflow"
+
   required:
     name: required
     if: always()
-    needs: test-and-build
+    needs: [test-and-build, release-contract]
     runs-on: ubuntu-latest
     steps:
-      - name: Require every platform job
+      - name: Require every platform and release-contract job
         shell: bash
         run: |
-          if [ "${{ needs.test-and-build.result }}" != "success" ]; then
-            echo "At least one required Windows/macOS CI job failed."
+          if [ "${{ needs.test-and-build.result }}" != "success" ] || \
+             [ "${{ needs.release-contract.result }}" != "success" ]; then
+            echo "At least one required Windows/macOS/release-contract job failed."
             exit 1
           fi
