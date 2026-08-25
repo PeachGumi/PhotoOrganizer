@@ -48,6 +48,24 @@ create_dmg() {
   return 1
 }
 
+verify_dmg() {
+  local image="$1"
+  local attempt
+
+  # GitHub-hosted macOS runners occasionally report EAGAIN immediately after
+  # image creation while diskimages-helper is still releasing resources. Retry
+  # only a small bounded number of times; a persistently invalid DMG must fail.
+  for attempt in 1 2 3; do
+    if hdiutil verify "$image" >/dev/null; then
+      return 0
+    fi
+    sleep "$attempt"
+  done
+
+  echo "Unable to verify DMG after 3 attempts: $image" >&2
+  return 1
+}
+
 icon="$OUTPUT_ROOT/PhotoOrganizer.icns"
 bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/app-icon.ico "$icon"
 test -s "$icon"
@@ -122,7 +140,7 @@ PLIST
 
   create_dmg "$dmg_stage" "$dmg" "Photo Organizer Smoke $arch"
   test -s "$dmg"
-  hdiutil verify "$dmg" >/dev/null
+  verify_dmg "$dmg"
 
   mount_point="$OUTPUT_ROOT/$rid/mount"
   mkdir -p "$mount_point"
