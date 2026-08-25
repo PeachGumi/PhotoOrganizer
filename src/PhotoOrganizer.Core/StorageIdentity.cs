@@ -132,9 +132,22 @@ public sealed class StorageSessionTracker
     public StorageSessionIdentity? Capture(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
+
+        string physicalPath;
+        try
+        {
+            physicalPath = PhysicalPathResolver.Resolve(path);
+        }
+        catch
+        {
+            // An unresolved redirect/ancestor cannot prove which volume will
+            // actually receive or supply bytes, so identity must fail closed.
+            return null;
+        }
+
         Refresh();
 
-        var volume = _provider.ResolveVolumeForPath(path);
+        var volume = _provider.ResolveVolumeForPath(physicalPath);
         if (volume is null || string.IsNullOrWhiteSpace(volume.Fingerprint)) return null;
 
         var root = PathSafety.Normalize(volume.RootPath);
