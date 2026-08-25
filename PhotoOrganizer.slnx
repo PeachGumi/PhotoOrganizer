@@ -2,4 +2,5 @@
   <Project Path="src/PhotoOrganizer.Core/PhotoOrganizer.Core.csproj" />
   <Project Path="src/PhotoOrganizer.App/PhotoOrganizer.App.csproj" />
   <Project Path="tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj" />
+  <Project Path="tests/PhotoOrganizer.App.Tests/PhotoOrganizer.App.Tests.csproj" />
 </Solution>
