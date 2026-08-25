@@ -4,6 +4,7 @@ set -euo pipefail
 REPO="${1:-PeachGumi/PhotoOrganizer}"
 SIGNING_ENVIRONMENT="production-signing"
 RELEASE_ENVIRONMENT="production-release"
+DESCRIPTION='SDカードの写真・動画をWindows / macOSへ安全に取り込み、日付・イベント単位で整理。SHA-256検証と永続化確認後にSDカード再利用可否を判定する写真整理アプリ。'
 
 command -v gh >/dev/null 2>&1 || { echo "GitHub CLI (gh) is required." >&2; exit 1; }
 gh auth status >/dev/null
@@ -11,7 +12,7 @@ gh auth status >/dev/null
 echo "Configuring repository settings for ${REPO}..."
 
 gh api --method PATCH "repos/${REPO}" \
-  -f description='Cross-platform photo/video organizer for Windows and macOS with fail-safe SD-card import verification.' \
+  -f description="$DESCRIPTION" \
   -F has_issues=true \
   -F has_projects=false \
   -F has_wiki=false \
@@ -24,7 +25,18 @@ gh api --method PATCH "repos/${REPO}" \
 
 gh api --method PUT "repos/${REPO}/topics" --input - >/dev/null <<'JSON'
 {
-  "names": ["photography", "photo-organizer", "windows", "macos", "dotnet", "avalonia"]
+  "names": [
+    "photography",
+    "photo-organizer",
+    "sd-card",
+    "raw-photo",
+    "video-import",
+    "photo-backup",
+    "windows",
+    "macos",
+    "dotnet",
+    "avalonia"
+  ]
 }
 JSON
 
@@ -102,6 +114,7 @@ configure_main_only_environment "$RELEASE_ENVIRONMENT"
 
 # Post-configuration verification is intentionally fatal. Do not print a success
 # message when GitHub rejected or partially applied a hardening setting.
+[[ "$(gh api "repos/${REPO}" --jq '.description')" == "$DESCRIPTION" ]]
 [[ "$(gh api "repos/${REPO}" --jq '.allow_squash_merge')" == "true" ]]
 [[ "$(gh api "repos/${REPO}" --jq '.allow_merge_commit')" == "false" ]]
 [[ "$(gh api "repos/${REPO}" --jq '.allow_rebase_merge')" == "false" ]]
@@ -116,4 +129,4 @@ configure_main_only_environment "$RELEASE_ENVIRONMENT"
 verify_main_only_environment "$SIGNING_ENVIRONMENT"
 verify_main_only_environment "$RELEASE_ENVIRONMENT"
 
-echo "Repository settings, main protection, ${SIGNING_ENVIRONMENT}, and ${RELEASE_ENVIRONMENT} main-only policies verified."
+echo "Repository About, settings, main protection, ${SIGNING_ENVIRONMENT}, and ${RELEASE_ENVIRONMENT} main-only policies verified."
