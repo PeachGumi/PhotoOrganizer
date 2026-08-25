@@ -16,8 +16,10 @@ iconset="$workdir/PhotoOrganizer.iconset"
 mkdir -p "$iconset"
 
 # The repository icon is a multi-image ICO whose modern entries are PNG payloads.
-# Extract the largest embedded PNG using only Python's standard library so the
-# release process does not acquire an extra package-manager dependency.
+# Extract the largest structurally complete PNG using only Python's standard
+# library. Individual malformed ICO image entries are rejected rather than
+# making their bytes part of a signed bundle; the conversion fails if no valid
+# PNG-backed entry remains.
 python3 - "$SOURCE_ICO" "$source_png" <<'PY'
 import struct
 import sys
@@ -33,27 +35,65 @@ if reserved != 0 or kind != 1 or count < 1:
     raise SystemExit("Invalid ICO header")
 
 png_signature = b"\x89PNG\r\n\x1a\n"
+
+
+def is_complete_png(payload: bytes) -> bool:
+    if not payload.startswith(png_signature):
+        return False
+
+    position = len(png_signature)
+    saw_ihdr = False
+    while position + 12 <= len(payload):
+        length = struct.unpack_from(">I", payload, position)[0]
+        chunk_type = payload[position + 4 : position + 8]
+        end = position + 12 + length
+        if end > len(payload):
+            return False
+        if not saw_ihdr:
+            if chunk_type != b"IHDR" or length != 13:
+                return False
+            saw_ihdr = True
+        position = end
+        if chunk_type == b"IEND":
+            return length == 0 and position == len(payload)
+    return False
+
+
 entries = []
 for index in range(count):
     offset = 6 + (index * 16)
     if offset + 16 > len(data):
         raise SystemExit("ICO directory is truncated")
+
     width_raw, height_raw = data[offset], data[offset + 1]
     width = width_raw or 256
     height = height_raw or 256
     size, image_offset = struct.unpack_from("<II", data, offset + 8)
     end = image_offset + size
-    if image_offset < 0 or size <= 0 or end > len(data):
-        raise SystemExit("ICO image entry is out of bounds")
+
+    if size <= 0 or image_offset < 6 + (count * 16) or end > len(data):
+        print(
+            f"Skipping malformed ICO entry {index}: "
+            f"offset={image_offset} size={size} file_size={len(data)}",
+            file=sys.stderr,
+        )
+        continue
+
     payload = data[image_offset:end]
-    if payload.startswith(png_signature):
+    if is_complete_png(payload):
         entries.append((width * height, width, height, payload))
+    elif payload.startswith(png_signature):
+        print(
+            f"Skipping incomplete PNG-backed ICO entry {index}: {width}x{height}",
+            file=sys.stderr,
+        )
 
 if not entries:
-    raise SystemExit("ICO contains no PNG-backed image entry")
+    raise SystemExit("ICO contains no complete PNG-backed image entry")
+
 _, width, height, payload = max(entries, key=lambda item: item[0])
 out.write_bytes(payload)
-print(f"Extracted {width}x{height} PNG from {source}")
+print(f"Extracted complete {width}x{height} PNG from {source}")
 PY
 
 make_icon() {
