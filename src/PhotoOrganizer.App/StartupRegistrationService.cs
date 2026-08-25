@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
@@ -147,27 +146,12 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
     private static void RunLaunchctl(params string[] arguments)
     {
         if (!File.Exists("/bin/launchctl")) return;
-        try
-        {
-            using var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "/bin/launchctl",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                }
-            };
-            foreach (var argument in arguments) process.StartInfo.ArgumentList.Add(argument);
-            if (!process.Start()) return;
-            process.WaitForExit(3000);
-        }
-        catch
-        {
-            // The LaunchAgent file still controls the next-login state.
-        }
+        _ = BoundedProcessRunner.Run(
+            "/bin/launchctl",
+            arguments,
+            TimeSpan.FromSeconds(3));
+        // Failure is intentionally non-fatal here: the LaunchAgent file still controls
+        // the next-login state, while the settings UI will report the persisted state.
     }
 
     [DllImport("libSystem.B.dylib")]
