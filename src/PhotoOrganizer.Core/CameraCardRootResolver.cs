@@ -16,7 +16,9 @@ public sealed class CameraCardRootResolver
         string selected;
         try
         {
-            selected = PathSafety.Normalize(selectedPath);
+            // A manually chosen alias/symlink must be evaluated by where it
+            // physically lands, not by the user-facing path string.
+            selected = PhysicalPathResolver.Resolve(selectedPath);
         }
         catch
         {
