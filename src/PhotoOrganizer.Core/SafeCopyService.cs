@@ -215,6 +215,14 @@ public sealed class SafeCopyService
         {
             var candidateName = suffix == 1 ? $"{fileName}{extension}" : $"{fileName}_{suffix}{extension}";
             var candidate = Path.Combine(destinationDirectory, candidateName);
+
+            // A directory occupies the same namespace entry as a file. Treat it as
+            // an immutable collision and move on instead of retrying the same path.
+            if (Directory.Exists(candidate))
+            {
+                continue;
+            }
+
             if (!File.Exists(candidate))
             {
                 return (candidate, false);
