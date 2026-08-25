@@ -28,13 +28,13 @@ Any scan error is fail-closed. Supported zero-byte media is an error. An incompl
 
 Manual selection of a nested camera directory must be expanded to the safe camera-card root. An arbitrary folder must not be accepted as equivalent to a complete card scan.
 
-## Destination path independence
+## Destination path and device independence
 
 A destination used for copy, duplicate lookup, or final reuse verification must not pass through a user-controlled symbolic link, junction, or other reparse point. A platform may recognize a fixed OS-owned compatibility alias only when its resolved target is explicitly verified against the expected system path; all other aliases fail closed.
 
 A lexical path alias must never count as an independent backup. In particular, a destination path that resolves back onto the camera card must not be allowed to write data or prove that the source bytes have been backed up.
 
-Source and destination must also resolve to different mounted-storage identities. Path strings alone are insufficient proof of independence.
+Source and destination must resolve to different mounted-volume identities **and different physical storage-device identities**. Two partitions/volumes on one physical SD, USB drive, or disk are not independent backup locations. If the physical-device identity of either side cannot be established, import/reuse approval fails closed.
 
 ## Copy transaction
 
@@ -61,7 +61,8 @@ Reuse approval requires all of the following after copy processing:
 
 - the same selected source storage is still mounted;
 - the same selected destination storage is still mounted;
-- source and destination storage identities still match the identities captured for this operation;
+- source and destination volume identities, physical-device identities, and mount-session identities still match the identities captured for this operation;
+- source and destination remain on different physical storage devices;
 - the destination path remains free of user-controlled symlink/junction/reparse aliases;
 - a fresh complete scan of the whole safe camera-card scope succeeds;
 - all supported source media expected from the initial scan is still present;
@@ -74,9 +75,9 @@ If any condition cannot be proved, the UI must remain blocked/not-verified.
 
 ## Storage replacement
 
-Path strings alone are not storage identity. Unmount/remount, same-letter replacement on Windows, or same-mount-path replacement on macOS must invalidate a previous scan and approval.
+Path strings alone are not storage identity. Unmount/remount, same-letter replacement on Windows, same-mount-path replacement on macOS, or a physical-device mapping change must invalidate a previous scan and approval.
 
-Platform adapters are responsible for a mount-session storage identity that fails closed when unavailable.
+Platform adapters are responsible for mounted-volume, physical-device, and process-local mount-session identities that fail closed when required identity cannot be established.
 
 ## Multi-card behavior
 

@@ -4,12 +4,14 @@ public sealed record MountedVolumeInfo(
     string RootPath,
     string Fingerprint,
     bool IsRemovable,
-    bool IsSystem);
+    bool IsSystem,
+    string? PhysicalDeviceFingerprint = null);
 
 public sealed record StorageSessionIdentity(
     string RootPath,
     string Fingerprint,
-    Guid SessionId);
+    Guid SessionId,
+    string? PhysicalDeviceFingerprint = null);
 
 public interface IStorageVolumeProvider
 {
@@ -158,12 +160,16 @@ public static class PathSafety
 
 /// <summary>
 /// Tracks a process-local identity for each currently mounted filesystem volume.
-/// A persistent OS volume identifier is only a fingerprint; it never authorizes reuse by itself.
-/// Once a mount disappears or its fingerprint changes, its session id is discarded permanently.
+/// A persistent OS volume identifier and physical-device identifier are fingerprints;
+/// neither authorizes reuse by itself. Once a mount disappears or either identity
+/// changes, its session id is discarded permanently.
 /// </summary>
 public sealed class StorageSessionTracker
 {
-    private sealed record SessionEntry(string Fingerprint, Guid SessionId);
+    private sealed record SessionEntry(
+        string Fingerprint,
+        string? PhysicalDeviceFingerprint,
+        Guid SessionId);
 
     private readonly IStorageVolumeProvider _provider;
     private readonly object _gate = new();
@@ -203,7 +209,11 @@ public sealed class StorageSessionTracker
             foreach (var existing in _sessions.Keys.ToList())
             {
                 if (!mounted.TryGetValue(existing, out var current)
-                    || !string.Equals(_sessions[existing].Fingerprint, current.Fingerprint, StringComparison.Ordinal))
+                    || !string.Equals(_sessions[existing].Fingerprint, current.Fingerprint, StringComparison.Ordinal)
+                    || !string.Equals(
+                        _sessions[existing].PhysicalDeviceFingerprint,
+                        current.PhysicalDeviceFingerprint,
+                        StringComparison.Ordinal))
                 {
                     _sessions.Remove(existing);
                     removed.Add(existing);
@@ -213,7 +223,10 @@ public sealed class StorageSessionTracker
             foreach (var volume in mounted.Values)
             {
                 if (_sessions.ContainsKey(volume.RootPath)) continue;
-                _sessions[volume.RootPath] = new SessionEntry(volume.Fingerprint, Guid.NewGuid());
+                _sessions[volume.RootPath] = new SessionEntry(
+                    volume.Fingerprint,
+                    volume.PhysicalDeviceFingerprint,
+                    Guid.NewGuid());
                 added.Add(volume.RootPath);
             }
         }
@@ -248,7 +261,16 @@ public sealed class StorageSessionTracker
         {
             if (!_sessions.TryGetValue(root, out var entry)) return null;
             if (!string.Equals(entry.Fingerprint, volume.Fingerprint, StringComparison.Ordinal)) return null;
-            return new StorageSessionIdentity(root, entry.Fingerprint, entry.SessionId);
+            if (!string.Equals(
+                    entry.PhysicalDeviceFingerprint,
+                    volume.PhysicalDeviceFingerprint,
+                    StringComparison.Ordinal)) return null;
+
+            return new StorageSessionIdentity(
+                root,
+                entry.Fingerprint,
+                entry.SessionId,
+                entry.PhysicalDeviceFingerprint);
         }
     }
 
@@ -258,6 +280,10 @@ public sealed class StorageSessionTracker
         return current is not null
             && current.SessionId == identity.SessionId
             && string.Equals(current.Fingerprint, identity.Fingerprint, StringComparison.Ordinal)
+            && string.Equals(
+                current.PhysicalDeviceFingerprint,
+                identity.PhysicalDeviceFingerprint,
+                StringComparison.Ordinal)
             && string.Equals(current.RootPath, identity.RootPath, _provider.PathComparison);
     }
 }

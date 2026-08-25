@@ -17,6 +17,7 @@ public sealed class StorageIdentityTests
 
         Assert.IsNotNull(snapshot);
         Assert.IsTrue(tracker.Matches(snapshot, temp.Path));
+        Assert.AreEqual("physical-a", snapshot.PhysicalDeviceFingerprint);
     }
 
     [TestMethod]
@@ -50,6 +51,24 @@ public sealed class StorageIdentityTests
         tracker.Refresh();
 
         Assert.IsFalse(tracker.Matches(snapshot, temp.Path));
+    }
+
+    [TestMethod]
+    public void SameVolumeFingerprintDifferentPhysicalDevice_InvalidatesOldSession()
+    {
+        using var temp = new TempDirectory();
+        var provider = new FakeProvider(temp.Path, "volume-a", physicalDeviceFingerprint: "physical-a");
+        var tracker = new StorageSessionTracker(provider);
+        var snapshot = tracker.Capture(temp.Path)!;
+
+        provider.PhysicalDeviceFingerprint = "physical-b";
+        tracker.Refresh();
+
+        Assert.IsFalse(tracker.Matches(snapshot, temp.Path));
+        var replacement = tracker.Capture(temp.Path);
+        Assert.IsNotNull(replacement);
+        Assert.AreNotEqual(snapshot.SessionId, replacement.SessionId);
+        Assert.AreEqual("physical-b", replacement.PhysicalDeviceFingerprint);
     }
 
     [TestMethod]
@@ -115,16 +134,23 @@ public sealed class StorageIdentityTests
         private readonly bool _isRemovable;
         private readonly bool _isSystem;
 
-        public FakeProvider(string root, string fingerprint, bool isRemovable = false, bool isSystem = false)
+        public FakeProvider(
+            string root,
+            string fingerprint,
+            bool isRemovable = false,
+            bool isSystem = false,
+            string? physicalDeviceFingerprint = "physical-a")
         {
             _root = PathSafety.Normalize(root);
             Fingerprint = fingerprint;
+            PhysicalDeviceFingerprint = physicalDeviceFingerprint;
             _isRemovable = isRemovable;
             _isSystem = isSystem;
         }
 
         public bool Mounted { get; set; } = true;
         public string Fingerprint { get; set; }
+        public string? PhysicalDeviceFingerprint { get; set; }
         public StringComparison PathComparison => OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
@@ -132,14 +158,24 @@ public sealed class StorageIdentityTests
         public IReadOnlyList<MountedVolumeInfo> GetMountedVolumes()
         {
             if (!Mounted) return [];
-            return [new MountedVolumeInfo(_root, Fingerprint, _isRemovable, _isSystem)];
+            return [new MountedVolumeInfo(
+                _root,
+                Fingerprint,
+                _isRemovable,
+                _isSystem,
+                PhysicalDeviceFingerprint)];
         }
 
         public MountedVolumeInfo? ResolveVolumeForPath(string path)
         {
             if (!Mounted || string.IsNullOrWhiteSpace(Fingerprint)) return null;
             if (!PathSafety.IsSameOrDescendant(path, _root, PathComparison)) return null;
-            return new MountedVolumeInfo(_root, Fingerprint, _isRemovable, _isSystem);
+            return new MountedVolumeInfo(
+                _root,
+                Fingerprint,
+                _isRemovable,
+                _isSystem,
+                PhysicalDeviceFingerprint);
         }
     }
 

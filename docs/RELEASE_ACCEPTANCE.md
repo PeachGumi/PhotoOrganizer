@@ -48,6 +48,8 @@ Use disposable/test media with independent ground-truth copies. Do not begin acc
 - [ ] A zero-byte supported JPG/RAW/video makes the scan incomplete/blocked.
 - [ ] Destination on the camera card, or a parent/child path overlapping the card, is rejected before copying.
 - [ ] Destination on another folder of the same physical volume is rejected.
+- [ ] On a disposable multi-partition test device, selecting a different partition/volume on the **same physical device** as the camera card is rejected before copying on both Windows and macOS.
+- [ ] A camera card whose physical-device identity cannot be established remains blocked rather than becoming import-ready; a destination whose physical-device identity cannot be established is likewise rejected before copying.
 - [ ] After import, every source file remains byte-identical and at the same source path; the app has not deleted, moved, renamed, modified, or overwritten any source media.
 - [ ] Existing destination file with the same name but different bytes is preserved; imported data receives `_2`, `_3`, etc.
 - [ ] Same-name identical bytes are treated as an already-backed-up duplicate and no unnecessary collision copy is created.
@@ -82,6 +84,7 @@ For every cycle:
 - [ ] Attempt tray/menu-bar Quit during an active import: shutdown is rejected and the workflow window is shown.
 - [ ] Mount a different card/device at the same path after a successful scan: the old scan session is rejected.
 - [ ] Unmount and remount the same card in the same app session: the previous mount-session approval is invalidated and a fresh scan is required.
+- [ ] Change the physical-device mapping associated with an otherwise unchanged mounted-volume identity: the previous session is invalidated.
 - [ ] Insert a second camera card while the first is being scanned/imported: active target does not switch and the second card is queued.
 - [ ] Remove a queued second card before it becomes active: it is removed from the queue and is not scanned from stale state.
 - [ ] Add a new supported file to the card between initial scan and final verification: final rescan includes it, and reuse cannot become safe unless that file also exists byte-identically in the destination.

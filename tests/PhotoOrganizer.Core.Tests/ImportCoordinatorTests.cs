@@ -81,6 +81,56 @@ public sealed class ImportCoordinatorTests
     }
 
     [TestMethod]
+    public async Task DifferentVolumeOnSamePhysicalDevice_IsRejectedBeforeCopy()
+    {
+        using var env = TestEnvironment.Create();
+        env.AddCameraFile("DCIM/photo.jpg", "camera-data", new DateTime(2026, 4, 6));
+        env.Provider.SetPhysicalDeviceFingerprint(env.DestinationRoot, "physical-camera-card");
+        env.Tracker.Refresh();
+        var coordinator = env.CreateCoordinator();
+        var scan = coordinator.ScanCard(env.CardRoot);
+
+        Assert.IsTrue(scan.IsReady);
+        var result = await coordinator.ImportAsync(scan.Session!, env.DestinationRoot, "Event");
+
+        Assert.AreEqual(ImportSafetyStatus.Blocked, result.Status);
+        StringAssert.Contains(result.Message, "physical storage device");
+        Assert.IsFalse(Directory.Exists(Path.Combine(env.DestinationRoot, "2026")));
+    }
+
+    [TestMethod]
+    public void MissingCameraPhysicalDeviceIdentity_BlocksScan()
+    {
+        using var env = TestEnvironment.Create();
+        env.AddCameraFile("DCIM/photo.jpg", "camera-data", new DateTime(2026, 4, 7));
+        env.Provider.SetPhysicalDeviceFingerprint(env.CardRoot, null);
+        env.Tracker.Refresh();
+
+        var scan = env.CreateCoordinator().ScanCard(env.CardRoot);
+
+        Assert.AreEqual(ImportSafetyStatus.Blocked, scan.Status);
+        Assert.IsFalse(scan.IsReady);
+        StringAssert.Contains(scan.Message, "physical-device identity");
+    }
+
+    [TestMethod]
+    public async Task MissingDestinationPhysicalDeviceIdentity_BlocksBeforeCopy()
+    {
+        using var env = TestEnvironment.Create();
+        env.AddCameraFile("DCIM/photo.jpg", "camera-data", new DateTime(2026, 4, 8));
+        var coordinator = env.CreateCoordinator();
+        var scan = coordinator.ScanCard(env.CardRoot);
+        env.Provider.SetPhysicalDeviceFingerprint(env.DestinationRoot, null);
+        env.Tracker.Refresh();
+
+        var result = await coordinator.ImportAsync(scan.Session!, env.DestinationRoot, "Event");
+
+        Assert.AreEqual(ImportSafetyStatus.Blocked, result.Status);
+        StringAssert.Contains(result.Message, "Destination physical-device identity is unavailable");
+        Assert.IsFalse(Directory.Exists(Path.Combine(env.DestinationRoot, "2026")));
+    }
+
+    [TestMethod]
     public async Task RemovalAndReinsertAfterScan_InvalidatesSession()
     {
         using var env = TestEnvironment.Create();
@@ -238,8 +288,8 @@ public sealed class ImportCoordinatorTests
             Directory.CreateDirectory(Path.Combine(card, "DCIM"));
             Directory.CreateDirectory(destination);
             var provider = new FakeVolumeProvider([
-                new MutableVolume(card, "camera-card", true, false, true),
-                new MutableVolume(destination, "destination-volume", false, false, true)
+                new MutableVolume(card, "camera-card", true, false, true, "physical-camera-card"),
+                new MutableVolume(destination, "destination-volume", false, false, true, "physical-destination")
             ]);
             return new TestEnvironment(root, card, destination, provider);
         }
@@ -274,7 +324,8 @@ public sealed class ImportCoordinatorTests
         string Fingerprint,
         bool IsRemovable,
         bool IsSystem,
-        bool Mounted);
+        bool Mounted,
+        string? PhysicalDeviceFingerprint);
 
     private sealed class FakeVolumeProvider : IStorageVolumeProvider
     {
@@ -293,7 +344,12 @@ public sealed class ImportCoordinatorTests
 
         public IReadOnlyList<MountedVolumeInfo> GetMountedVolumes() => _volumes
             .Where(v => v.Mounted)
-            .Select(v => new MountedVolumeInfo(v.RootPath, v.Fingerprint, v.IsRemovable, v.IsSystem))
+            .Select(v => new MountedVolumeInfo(
+                v.RootPath,
+                v.Fingerprint,
+                v.IsRemovable,
+                v.IsSystem,
+                v.PhysicalDeviceFingerprint))
             .ToArray();
 
         public MountedVolumeInfo? ResolveVolumeForPath(string path)
@@ -314,7 +370,12 @@ public sealed class ImportCoordinatorTests
 
             return volume is null
                 ? null
-                : new MountedVolumeInfo(volume.RootPath, volume.Fingerprint, volume.IsRemovable, volume.IsSystem);
+                : new MountedVolumeInfo(
+                    volume.RootPath,
+                    volume.Fingerprint,
+                    volume.IsRemovable,
+                    volume.IsSystem,
+                    volume.PhysicalDeviceFingerprint);
         }
 
         public void SetMounted(string root, bool mounted)
@@ -329,6 +390,13 @@ public sealed class ImportCoordinatorTests
             var normalized = PathSafety.Normalize(root);
             var index = _volumes.FindIndex(v => string.Equals(v.RootPath, normalized, PathComparison));
             if (index >= 0) _volumes[index] = _volumes[index] with { Fingerprint = fingerprint };
+        }
+
+        public void SetPhysicalDeviceFingerprint(string root, string? fingerprint)
+        {
+            var normalized = PathSafety.Normalize(root);
+            var index = _volumes.FindIndex(v => string.Equals(v.RootPath, normalized, PathComparison));
+            if (index >= 0) _volumes[index] = _volumes[index] with { PhysicalDeviceFingerprint = fingerprint };
         }
     }
 }
