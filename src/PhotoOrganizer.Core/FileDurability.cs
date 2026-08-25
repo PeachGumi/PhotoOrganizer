@@ -29,6 +29,7 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
     private const uint MoveFileWriteThrough = 0x00000008;
     private const int FFullFsync = 51;
     private const int OpenReadOnly = 0;
+    private const int OpenReadWrite = 2;
     private const int InterruptedSystemCall = 4;
 
     public FinalizeFileResult FinalizeNewFile(string temporaryPath, string finalPath, DateTime lastWriteUtc)
@@ -184,11 +185,13 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
 
     private static DurabilityResult FullFsyncMacFile(string filePath)
     {
-        var descriptor = OpenMac(filePath, OpenReadOnly);
+        // Use a writable descriptor for a write durability operation. If the
+        // destination has become read-only, fail closed rather than approving SD reuse.
+        var descriptor = OpenMac(filePath, OpenReadWrite);
         if (descriptor < 0)
         {
             var error = Marshal.GetLastPInvokeError();
-            return MacFailure("open finalized file", error);
+            return MacFailure("open finalized file for durable synchronization", error);
         }
 
         try
@@ -213,7 +216,7 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
     }
 
     private static DurabilityResult MacFailure(string operation, int error) =>
-        new(false, $"macOS {operation} failed (errno {error}): {new Win32Exception(error).Message}");
+        new(false, $"macOS {operation} failed (errno {error}).");
 
     [LibraryImport("kernel32.dll", EntryPoint = "MoveFileExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
