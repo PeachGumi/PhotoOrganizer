@@ -4,6 +4,7 @@
         x:Class="PhotoOrganizer.App.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="Photo Organizer"
+        Icon="/Assets/app-icon.ico"
         Width="920"
         Height="800"
         MinWidth="760"
