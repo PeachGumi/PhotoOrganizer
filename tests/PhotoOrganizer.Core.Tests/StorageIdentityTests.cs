@@ -1,115 +1,112 @@
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using PhotoOrganizer.Core;
-using Xunit;
 
 namespace PhotoOrganizer.Core.Tests;
 
-public sealed class StorageIdentityTests : IDisposable
+[TestClass]
+public sealed class StorageIdentityTests
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "photo-organizer-storage-tests-" + Guid.NewGuid().ToString("N"));
-
-    public StorageIdentityTests()
-    {
-        Directory.CreateDirectory(_root);
-    }
-
-    [Fact]
+    [TestMethod]
     public void Capture_MatchesWithinSameMountSession()
     {
-        var provider = new FakeProvider(_root, "volume-a");
+        using var temp = new TempDirectory();
+        var provider = new FakeProvider(temp.Path, "volume-a");
         var tracker = new StorageSessionTracker(provider);
 
-        var snapshot = tracker.Capture(_root);
+        var snapshot = tracker.Capture(temp.Path);
 
-        Assert.NotNull(snapshot);
-        Assert.True(tracker.Matches(snapshot!, _root));
+        Assert.IsNotNull(snapshot);
+        Assert.IsTrue(tracker.Matches(snapshot, temp.Path));
     }
 
-    [Fact]
+    [TestMethod]
     public void RemovalAndReinsert_InvalidatesOldSessionEvenForSameFingerprint()
     {
-        var provider = new FakeProvider(_root, "volume-a");
+        using var temp = new TempDirectory();
+        var provider = new FakeProvider(temp.Path, "volume-a");
         var tracker = new StorageSessionTracker(provider);
-        var snapshot = tracker.Capture(_root)!;
+        var snapshot = tracker.Capture(temp.Path)!;
 
         provider.Mounted = false;
         tracker.Refresh();
         provider.Mounted = true;
         tracker.Refresh();
 
-        Assert.False(tracker.Matches(snapshot, _root));
-        var replacement = tracker.Capture(_root);
-        Assert.NotNull(replacement);
-        Assert.NotEqual(snapshot.SessionId, replacement!.SessionId);
+        Assert.IsFalse(tracker.Matches(snapshot, temp.Path));
+        var replacement = tracker.Capture(temp.Path);
+        Assert.IsNotNull(replacement);
+        Assert.AreNotEqual(snapshot.SessionId, replacement.SessionId);
     }
 
-    [Fact]
+    [TestMethod]
     public void SamePathDifferentVolume_InvalidatesOldSession()
     {
-        var provider = new FakeProvider(_root, "volume-a");
+        using var temp = new TempDirectory();
+        var provider = new FakeProvider(temp.Path, "volume-a");
         var tracker = new StorageSessionTracker(provider);
-        var snapshot = tracker.Capture(_root)!;
+        var snapshot = tracker.Capture(temp.Path)!;
 
         provider.Fingerprint = "volume-b";
         tracker.Refresh();
 
-        Assert.False(tracker.Matches(snapshot, _root));
+        Assert.IsFalse(tracker.Matches(snapshot, temp.Path));
     }
 
-    [Fact]
+    [TestMethod]
     public void MissingFingerprint_FailsClosed()
     {
-        var provider = new FakeProvider(_root, string.Empty);
+        using var temp = new TempDirectory();
+        var provider = new FakeProvider(temp.Path, string.Empty);
         var tracker = new StorageSessionTracker(provider);
 
-        Assert.Null(tracker.Capture(_root));
+        Assert.IsNull(tracker.Capture(temp.Path));
     }
 
-    [Fact]
+    [TestMethod]
     public void NestedDcimSelection_ExpandsToMountedCardRoot()
     {
-        var nested = Path.Combine(_root, "DCIM", "100NIKON");
+        using var temp = new TempDirectory();
+        var nested = Path.Combine(temp.Path, "DCIM", "100NIKON");
         Directory.CreateDirectory(nested);
-        var provider = new FakeProvider(_root, "volume-a", isRemovable: true);
+        var provider = new FakeProvider(temp.Path, "volume-a", isRemovable: true);
         var resolver = new CameraCardRootResolver(provider);
 
-        Assert.Equal(PathSafety.Normalize(_root), resolver.Resolve(nested));
+        Assert.AreEqual(PathSafety.Normalize(temp.Path), resolver.Resolve(nested));
     }
 
-    [Fact]
+    [TestMethod]
     public void PrivateCameraStructure_IsAccepted()
     {
-        var nested = Path.Combine(_root, "PRIVATE", "AVCHD");
+        using var temp = new TempDirectory();
+        var nested = Path.Combine(temp.Path, "PRIVATE", "AVCHD");
         Directory.CreateDirectory(nested);
-        var provider = new FakeProvider(_root, "volume-a", isRemovable: true);
+        var provider = new FakeProvider(temp.Path, "volume-a", isRemovable: true);
         var resolver = new CameraCardRootResolver(provider);
 
-        Assert.Equal(PathSafety.Normalize(_root), resolver.Resolve(nested));
+        Assert.AreEqual(PathSafety.Normalize(temp.Path), resolver.Resolve(nested));
     }
 
-    [Fact]
+    [TestMethod]
     public void ArbitraryMountedFolderWithoutCameraStructure_IsRejected()
     {
-        var child = Path.Combine(_root, "Pictures");
+        using var temp = new TempDirectory();
+        var child = Path.Combine(temp.Path, "Pictures");
         Directory.CreateDirectory(child);
-        var provider = new FakeProvider(_root, "volume-a", isRemovable: true);
+        var provider = new FakeProvider(temp.Path, "volume-a", isRemovable: true);
         var resolver = new CameraCardRootResolver(provider);
 
-        Assert.Null(resolver.Resolve(child));
+        Assert.IsNull(resolver.Resolve(child));
     }
 
-    [Fact]
+    [TestMethod]
     public void SystemVolume_IsRejectedEvenWhenItContainsDcim()
     {
-        Directory.CreateDirectory(Path.Combine(_root, "DCIM"));
-        var provider = new FakeProvider(_root, "system", isSystem: true);
+        using var temp = new TempDirectory();
+        Directory.CreateDirectory(Path.Combine(temp.Path, "DCIM"));
+        var provider = new FakeProvider(temp.Path, "system", isSystem: true);
         var resolver = new CameraCardRootResolver(provider);
 
-        Assert.Null(resolver.Resolve(_root));
-    }
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_root, recursive: true); } catch { }
+        Assert.IsNull(resolver.Resolve(temp.Path));
     }
 
     private sealed class FakeProvider : IStorageVolumeProvider
@@ -143,6 +140,22 @@ public sealed class StorageIdentityTests : IDisposable
             if (!Mounted || string.IsNullOrWhiteSpace(Fingerprint)) return null;
             if (!PathSafety.IsSameOrDescendant(path, _root, PathComparison)) return null;
             return new MountedVolumeInfo(_root, Fingerprint, _isRemovable, _isSystem);
+        }
+    }
+
+    private sealed class TempDirectory : IDisposable
+    {
+        public TempDirectory()
+        {
+            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"PhotoOrganizerStorageTests-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(Path);
+        }
+
+        public string Path { get; }
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Path, recursive: true); } catch { }
         }
     }
 }
