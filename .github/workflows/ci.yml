@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: macOS
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.400
+
+      - name: Show SDK
+        run: dotnet --info
+
+      - name: Restore tests
+        run: dotnet restore tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj --locked-mode false
+
+      - name: Restore app
+        run: dotnet restore src/PhotoOrganizer.App/PhotoOrganizer.App.csproj --locked-mode false
+
+      - name: Run shared safety tests
+        run: dotnet test tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj --configuration Release --no-restore
+
+      - name: Build unified desktop app
+        run: dotnet build src/PhotoOrganizer.App/PhotoOrganizer.App.csproj --configuration Release --no-restore
+
+  required:
+    name: required
+    if: always()
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every platform job
+        shell: bash
+        run: |
+          if [ "${{ needs.test-and-build.result }}" != "success" ]; then
+            echo "At least one required Windows/macOS CI job failed."
+            exit 1
+          fi
