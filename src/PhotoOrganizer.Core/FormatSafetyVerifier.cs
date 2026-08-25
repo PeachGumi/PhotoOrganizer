@@ -14,15 +14,18 @@ public sealed class FormatSafetyVerifier
     private readonly MediaClassifier _classifier;
     private readonly IStorageVolumeProvider? _volumeProvider;
     private readonly IFileHasher _hasher;
+    private readonly IFileDurabilityService _durability;
 
     public FormatSafetyVerifier(
         MediaClassifier classifier,
         IStorageVolumeProvider? volumeProvider = null,
-        IFileHasher? hasher = null)
+        IFileHasher? hasher = null,
+        IFileDurabilityService? durability = null)
     {
         _classifier = classifier;
         _volumeProvider = volumeProvider;
         _hasher = hasher ?? new Sha256FileHasher();
+        _durability = durability ?? new PlatformFileDurabilityService();
     }
 
     public async Task<FormatVerificationResult> VerifyAsync(
@@ -102,11 +105,23 @@ public sealed class FormatSafetyVerifier
                             destinationHashCache[candidate] = destinationHash;
                         }
 
-                        if (string.Equals(sourceHash, destinationHash, StringComparison.Ordinal))
+                        if (!string.Equals(sourceHash, destinationHash, StringComparison.Ordinal))
                         {
-                            matched = true;
-                            break;
+                            continue;
                         }
+
+                        // A cache-readable SHA match is not sufficient for SD reuse.
+                        // Force the matched independent destination copy to durable
+                        // storage before allowing it to count as verified.
+                        var durability = _durability.EnsureDurable(candidate);
+                        if (!durability.Success)
+                        {
+                            errors.Add($"{candidate}: {durability.Error ?? "durable destination commit failed"}");
+                            continue;
+                        }
+
+                        matched = true;
+                        break;
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {

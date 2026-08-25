@@ -42,16 +42,23 @@ For every new source file:
 
 1. Read source size and SHA-256.
 2. Never delete or overwrite an existing destination file.
-3. If an existing candidate has identical size and SHA-256, treat it as an already-imported duplicate.
+3. If an existing candidate has identical size and SHA-256, treat it as an already-imported duplicate only after that candidate can be durably synchronized.
 4. If a name collides with different bytes, select `_2`, `_3`, and so on.
 5. Copy to an app-created hidden `.partial-*` path.
 6. Flush the temporary destination.
 7. Verify temporary size and SHA-256.
 8. Re-read the source SHA-256 and size to ensure the source did not change during copy.
 9. Move the verified temporary file to an unused final path without overwrite.
-10. Verify final size and SHA-256 again.
+10. Set final metadata, then durably commit the finalized file and its directory entry before reporting copy success.
+11. Verify final size and SHA-256 again.
 
-Only app-created never-finalized `.partial-*` files may be automatically deleted by copy cleanup. Existing library files and finalized copies must never be deleted as part of collision handling or error recovery.
+Durable commit is platform-specific and fail-closed:
+
+- on macOS, the finalized file must receive `F_FULLFSYNC`, and the parent directory entry created by the no-clobber move must be synchronized;
+- on Windows, the final no-replace move must use `MOVEFILE_WRITE_THROUGH`, and the finalized file handle must be flushed after final metadata changes;
+- if durable commit cannot be established, the copy result is failed and SD reuse remains blocked even when the destination bytes currently hash correctly.
+
+Only app-created never-finalized `.partial-*` files may be automatically deleted by copy cleanup. Existing library files and finalized copies must never be deleted as part of collision handling or error recovery. In particular, if durability fails after the temporary file has become a finalized destination file, that finalized file is retained for a later safe retry or verification attempt.
 
 ## SD-card reuse approval
 
@@ -68,8 +75,11 @@ Reuse approval requires all of the following after copy processing:
 - all supported source media expected from the initial scan is still present;
 - every currently supported source file is non-zero and readable;
 - an independent destination file with equal size and SHA-256 exists for every supported source file;
+- every destination file used as proof of backup can be durably synchronized at final verification time;
 - a source path itself, including the same bytes reached through a path alias, is never accepted as proof of an independent destination copy;
-- storage identity is checked again after hashing before approval is displayed.
+- storage identity is checked again after hashing and durability synchronization before approval is displayed.
+
+A SHA-256 match served from operating-system or device caches is not by itself sufficient proof that the camera card can be reformatted. Green approval requires durable destination commit in addition to byte verification.
 
 If any condition cannot be proved, the UI must remain blocked/not-verified.
 
