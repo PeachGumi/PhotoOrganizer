@@ -1,0 +1,34 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PhotoOrganizer.App.MainWindow"
+        Title="Photo Organizer"
+        Width="760"
+        Height="560"
+        MinWidth="640"
+        MinHeight="480">
+  <ScrollViewer>
+    <StackPanel Margin="32" Spacing="18">
+      <TextBlock Text="Photo Organizer" FontSize="30" FontWeight="SemiBold" />
+      <TextBlock Text="Windows / macOS unified edition" FontSize="16" Opacity="0.72" />
+
+      <Border Padding="18" CornerRadius="10" BorderThickness="1">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Migration foundation" FontSize="18" FontWeight="SemiBold" />
+          <TextBlock TextWrapping="Wrap"
+                     Text="The shared data-safety core is active. SD-card detection, platform storage identity, import orchestration, and production release packaging are being migrated from the existing Windows and macOS applications." />
+        </StackPanel>
+      </Border>
+
+      <Border Padding="18" CornerRadius="10" BorderThickness="1">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Data-safety contract" FontSize="18" FontWeight="SemiBold" />
+          <TextBlock TextWrapping="Wrap"
+                     Text="Source media is never overwritten, moved, renamed, modified, or deleted. Copy completion alone must never authorize SD-card reuse. Reuse requires a complete scan and fresh byte-for-byte destination verification." />
+        </StackPanel>
+      </Border>
+
+      <TextBlock TextWrapping="Wrap" Opacity="0.72"
+                 Text="This bootstrap build is not yet a production release. Existing PhotoOrganizer-win and PhotoOrganizer-mac remain the operational references until migration acceptance is complete." />
+    </StackPanel>
+  </ScrollViewer>
+</Window>
