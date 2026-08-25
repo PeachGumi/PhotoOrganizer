@@ -3,4 +3,8 @@
     <AssemblyName>PhotoOrganizer.Core</AssemblyName>
     <RootNamespace>PhotoOrganizer.Core</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MetadataExtractor" Version="2.9.0" />
+  </ItemGroup>
 </Project>
