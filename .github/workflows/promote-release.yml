@@ -1,0 +1,138 @@
+name: Promote accepted release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Accepted release tag (for example v1.0.0)'
+        required: true
+        type: string
+      candidate_commit:
+        description: 'Exact commit SHA recorded during acceptance'
+        required: true
+        type: string
+      acceptance_confirmed:
+        description: 'I confirm docs/RELEASE_ACCEPTANCE.md passed for this exact candidate'
+        required: true
+        type: boolean
+        default: false
+      evidence:
+        description: 'Acceptance evidence reference (issue/comment/document URL or durable record)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote verified acceptance candidate
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.version }}
+      EXPECTED_COMMIT: ${{ inputs.candidate_commit }}
+      ACCEPTANCE_CONFIRMED: ${{ inputs.acceptance_confirmed }}
+      ACCEPTANCE_EVIDENCE: ${{ inputs.evidence }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require explicit acceptance record
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_TAG" != v* ]] || [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must match vMAJOR.MINOR.PATCH: $RELEASE_TAG"
+            exit 1
+          fi
+          if [[ "$ACCEPTANCE_CONFIRMED" != "true" ]]; then
+            echo "::error::Real-device acceptance must be explicitly confirmed."
+            exit 1
+          fi
+          if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::candidate_commit must be an exact 40-character commit SHA."
+            exit 1
+          fi
+          if [[ -z "${ACCEPTANCE_EVIDENCE//[[:space:]]/}" ]]; then
+            echo "::error::A durable acceptance evidence reference is required."
+            exit 1
+          fi
+
+      - name: Verify candidate release identity and complete artifact set
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
+
+          draft="$(jq -r '.draft' <<< "$release_json")"
+          prerelease="$(jq -r '.prerelease' <<< "$release_json")"
+          target="$(jq -r '.target_commitish' <<< "$release_json")"
+          release_id="$(jq -r '.id' <<< "$release_json")"
+
+          if [[ "$draft" != "false" || "$prerelease" != "true" ]]; then
+            echo "::error::The release must exist as a published prerelease acceptance candidate."
+            exit 1
+          fi
+          if [[ "$target" != "$EXPECTED_COMMIT" ]]; then
+            echo "::error::Candidate release target $target does not match accepted commit $EXPECTED_COMMIT."
+            exit 1
+          fi
+
+          version="${RELEASE_TAG#v}"
+          required=(
+            "PhotoOrganizer-Windows-x64-$version.zip"
+            "PhotoOrganizer-Windows-x64-$version.zip.sha256"
+            "PhotoOrganizer-Windows-arm64-$version.zip"
+            "PhotoOrganizer-Windows-arm64-$version.zip.sha256"
+            "PhotoOrganizer-macOS-arm64-$version.dmg"
+            "PhotoOrganizer-macOS-arm64-$version.dmg.sha256"
+            "PhotoOrganizer-macOS-x64-$version.dmg"
+            "PhotoOrganizer-macOS-x64-$version.dmg.sha256"
+          )
+          asset_names="$(jq -r '.assets[].name' <<< "$release_json")"
+          for artifact in "${required[@]}"; do
+            if ! grep -Fxq "$artifact" <<< "$asset_names"; then
+              echo "::error::Acceptance candidate is missing required asset: $artifact"
+              exit 1
+            fi
+          done
+
+          body="$(jq -r '.body // ""' <<< "$release_json")"
+          delimiter="acceptance_$(date +%s)_$RANDOM"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+          echo "body<<$delimiter" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$body" >> "$GITHUB_OUTPUT"
+          echo "$delimiter" >> "$GITHUB_OUTPUT"
+
+      - name: Promote prerelease to latest stable with acceptance evidence
+        shell: bash
+        env:
+          RELEASE_ID: ${{ steps.candidate.outputs.release_id }}
+          CURRENT_BODY: ${{ steps.candidate.outputs.body }}
+        run: |
+          set -euo pipefail
+          promoted_body="$CURRENT_BODY
+
+          ---
+          Production acceptance completed for commit $EXPECTED_COMMIT.
+          Acceptance evidence: $ACCEPTANCE_EVIDENCE"
+
+          jq -n \
+            --arg body "$promoted_body" \
+            '{prerelease: false, make_latest: "true", body: $body}' \
+            | gh api --method PATCH \
+                "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+                --input - >/dev/null
+
+      - name: Verify stable promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")"
+          test "$(jq -r '.draft' <<< "$release_json")" = "false"
+          test "$(jq -r '.prerelease' <<< "$release_json")" = "false"
+          test "$(jq -r '.target_commitish' <<< "$release_json")" = "$EXPECTED_COMMIT"
+          echo "Promoted $RELEASE_TAG to the accepted stable release."

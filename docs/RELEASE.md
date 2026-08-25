@@ -1,6 +1,6 @@
 # Production release
 
-Photo Organizer publishes one version for Windows and macOS from one exact commit. A production release is intentionally fail-closed: if any required signing credential or platform build fails, no GitHub Release is created.
+Photo Organizer publishes one version for Windows and macOS from one exact commit. Release is intentionally fail-closed: if any required signing credential or platform build fails, no candidate is published. A signed CI candidate is still **not** a production-ready stable release until the real-device acceptance checklist passes and a separate promotion workflow records that approval.
 
 ## Canonical artifacts
 
@@ -34,17 +34,50 @@ macOS:
 
 Do not commit any certificate, private key, password, or app-specific password. On a trusted local machine, `bash Scripts/configure_release_secrets.sh` sends values to `gh secret set` through stdin without deliberately printing the values.
 
-## Release flow
+## Stage 1 — signed acceptance candidate
 
-1. Ensure `main` CI and CodeQL are green and the release acceptance checklist has no unresolved code blocker.
+1. Ensure `main` CI and CodeQL are green and no unresolved code blocker remains.
 2. Configure all signing secrets.
 3. Create or fast-forward `release/vX.Y.Z` to the exact approved `main` commit, or push tag `vX.Y.Z`.
 4. The `Signing preflight` job validates the semantic version and requires every Windows and Apple signing secret before platform release jobs run.
 5. Windows and macOS independently run the shared safety tests from the same commit, produce signed packages, verify signatures, and upload short-lived workflow artifacts.
-6. Only after both platform jobs succeed does `Publish complete cross-platform release` download the complete set, verify every SHA-256 checksum, and create the GitHub Release.
-7. Run and record the real-device acceptance checklist in `docs/RELEASE_ACCEPTANCE.md` before describing the build as production-ready.
+6. Only after both platform jobs succeed does the publish job download the complete set, verify every SHA-256 checksum, and create a **GitHub Prerelease acceptance candidate**.
+7. The candidate is intentionally not marked Latest or stable. Use these exact candidate bytes for clean-machine and real-camera-card acceptance.
 
-A successful copy/build job, an unsigned local build, or a partially successful platform release is never a production release.
+The release workflow must never promote its own output to stable. This separation prevents a successful signing/build run from being mistaken for evidence that the real workflow is safe on physical machines and cards.
+
+## Stage 2 — explicit stable promotion
+
+After every applicable item in `docs/RELEASE_ACCEPTANCE.md` has passed for the exact prerelease candidate, run `.github/workflows/promote-release.yml` manually.
+
+The promotion workflow requires:
+
+- `version` — the exact `vMAJOR.MINOR.PATCH` candidate tag;
+- `candidate_commit` — the exact 40-character commit SHA recorded during acceptance;
+- `acceptance_confirmed=true` — an explicit human confirmation that the checklist passed;
+- `evidence` — a durable reference to the recorded acceptance evidence (for example a GitHub issue/comment or controlled test record).
+
+Before promotion it verifies that:
+
+- the release exists and is a published prerelease, not a draft;
+- its target commit exactly equals `candidate_commit`;
+- all four expected Windows/macOS artifacts are present;
+- all four corresponding SHA-256 files are present.
+
+Only then does it clear the prerelease flag, mark the release as Latest, and append the accepted commit and evidence reference to the release notes.
+
+If any of these checks fail, the candidate remains a prerelease and customer-facing stable distribution must not point to it as the approved production release.
+
+## What does not count as production-ready
+
+None of the following is sufficient on its own:
+
+- a successful normal CI run;
+- a successful signing/notarization workflow;
+- an unsigned local build;
+- only one platform succeeding;
+- a prerelease candidate that has not completed the real-device checklist;
+- a release whose accepted commit or evidence record cannot be identified.
 
 ## SmartScreen and Gatekeeper
 

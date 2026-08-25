@@ -76,13 +76,15 @@ CI executes shared safety tests and builds the unified desktop app on both Windo
 
 ## Production release
 
-The release workflow produces signed Windows x64/ARM64 packages and Developer ID signed/notarized macOS Apple Silicon/Intel DMGs from the same version and exact commit. No GitHub Release is created unless both platform signing pipelines succeed and every published artifact passes its SHA-256 verification.
+The signing workflow produces Windows x64/ARM64 packages and Developer ID signed/notarized macOS Apple Silicon/Intel DMGs from the same exact commit. Both platforms and every SHA-256 check must succeed before the artifacts are published, and they are published **only as a Prerelease acceptance candidate**.
 
-See [`docs/RELEASE.md`](docs/RELEASE.md) for signing setup and [`docs/RELEASE_ACCEPTANCE.md`](docs/RELEASE_ACCEPTANCE.md) for the mandatory real-device acceptance checklist.
+The candidate becomes Latest/stable only through the separate manual promotion workflow after the exact candidate has passed the documented clean-machine and real-camera-card acceptance checklist and a durable evidence reference is supplied. A successful signing workflow alone is never treated as production approval.
+
+See [`docs/RELEASE.md`](docs/RELEASE.md) for the two-stage release process and [`docs/RELEASE_ACCEPTANCE.md`](docs/RELEASE_ACCEPTANCE.md) for the mandatory real-device acceptance checklist.
 
 ## Migration status
 
-This repository is the canonical source for new Windows/macOS development. The shared safety Core, unified production workflow, release pipeline, and shared resident UI are migrated. The legacy applications remain available as references until the unified signed artifacts pass real-device acceptance.
+This repository is the canonical source for new Windows/macOS development. The shared safety Core, unified production workflow, release pipeline, and shared resident UI are migrated. The legacy applications remain available as references until a unified signed candidate passes real-device acceptance and is explicitly promoted to stable.
 
 Deliberate behavior differences from the legacy implementations, including removal of unsafe overwrite/timestamp-only duplicate behavior and silent file retry, are documented in [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md).
 

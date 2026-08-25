@@ -1,10 +1,11 @@
 # Release acceptance checklist
 
-A workflow success is necessary but not sufficient for a production-ready Photo Organizer release. Complete this checklist against the exact signed artifacts from the candidate GitHub Release and retain evidence (release tag/SHA, OS version, machine architecture, card/filesystem, counts, relevant screenshots/logs, and checksums).
+A workflow success is necessary but not sufficient for a production-ready Photo Organizer release. Complete this checklist against the exact signed **GitHub Prerelease acceptance candidate** and retain evidence (release tag/SHA, OS version, machine architecture, card/filesystem, counts, relevant screenshots/logs, and checksums). Do not promote the candidate to Latest/stable until every applicable item is complete.
 
-## Build provenance and signatures
+## Candidate provenance and signatures
 
-- [ ] Candidate tag/version maps to the intended `main` commit.
+- [ ] Candidate exists as a GitHub Prerelease, not as Latest/stable.
+- [ ] Candidate tag/version maps to the intended exact `main` commit and that 40-character SHA is recorded.
 - [ ] Windows x64 ZIP SHA-256 matches its published checksum.
 - [ ] Windows arm64 ZIP SHA-256 matches its published checksum.
 - [ ] macOS arm64 DMG SHA-256 matches its published checksum.
@@ -85,11 +86,23 @@ For every cycle:
 - [ ] Make an initially scanned supported file disappear before final verification: reuse is blocked.
 - [ ] Force-kill the process during import, relaunch it, and confirm no previous reuse-safe state is restored.
 
+## Stable promotion record
+
+After every applicable check above passes:
+
+- [ ] Store a durable evidence reference containing the tested tag, exact candidate commit, OS/hardware/card details and outcomes.
+- [ ] Run `Promote accepted release` with the exact candidate tag and 40-character accepted commit SHA.
+- [ ] Set `acceptance_confirmed=true` only after the checklist is complete.
+- [ ] Supply the durable evidence reference to the promotion workflow.
+- [ ] Confirm the workflow refuses a wrong commit, a non-prerelease release, or an incomplete artifact set.
+- [ ] Confirm successful promotion clears the Prerelease flag, marks the same release Latest/stable, preserves the exact artifacts, and appends the accepted commit/evidence reference to its release notes.
+
 ## Retirement gate for legacy repositories
 
 Do not archive or label `PhotoOrganizer-win` / `PhotoOrganizer-mac` as superseded for production until:
 
 - [ ] all applicable acceptance checks above are recorded for a signed unified candidate;
+- [ ] that exact candidate has been promoted through the explicit acceptance workflow;
 - [ ] no open P0/P1 migration defect remains;
-- [ ] the chosen customer download/distribution path is documented;
+- [ ] the chosen customer download/distribution path points to the promoted stable release;
 - [ ] rollback instructions point to the last known-good legacy release if the unified version has a release-blocking regression.
