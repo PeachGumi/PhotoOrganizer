@@ -1,11 +1,6 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
-    branches:
-      - 'release/v*'
   workflow_dispatch:
     inputs:
       version:
@@ -15,10 +10,10 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.repository }}-${{ inputs.version }}
   cancel-in-progress: false
 
 env:
@@ -26,11 +21,46 @@ env:
 
 jobs:
   preflight:
-    name: Signing preflight
+    name: Release ref preflight
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.version.outputs.release_tag }}
       version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Require manual release from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Production release must be dispatched from main. Current ref: $GITHUB_REF"
+            exit 1
+          fi
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="${DISPATCH_VERSION:-}"
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must match vMAJOR.MINOR.PATCH: $RELEASE_TAG"
+            exit 1
+          fi
+
+          VERSION="${RELEASE_TAG#v}"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release $RELEASE_TAG from exact main commit $GITHUB_SHA"
+
+  signing-preflight:
+    name: Protected signing credential preflight
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment:
+      name: production-signing
+      deployment: false
     env:
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
       WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
@@ -41,32 +71,7 @@ jobs:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
     steps:
-      - name: Resolve release version
-        id: version
-        shell: bash
-        env:
-          DISPATCH_VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            RELEASE_TAG="$GITHUB_REF_NAME"
-          elif [[ "$GITHUB_REF_NAME" == release/v* ]]; then
-            RELEASE_TAG="${GITHUB_REF_NAME#release/}"
-          else
-            RELEASE_TAG="${DISPATCH_VERSION:-}"
-          fi
-
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Release tag must match vMAJOR.MINOR.PATCH: $RELEASE_TAG"
-            exit 1
-          fi
-
-          VERSION="${RELEASE_TAG#v}"
-          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Release $RELEASE_TAG from exact commit $GITHUB_SHA"
-
-      - name: Require every production signing secret
+      - name: Require every production environment secret
         shell: bash
         run: |
           set -euo pipefail
@@ -76,20 +81,23 @@ jobs:
             MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD DEVELOPER_ID_APPLICATION \
             APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::Missing required repository secret: $name"
+              echo "::error::Missing required production-signing environment secret: $name"
               missing=1
             fi
           done
           if [[ "$missing" -ne 0 ]]; then
-            echo "::error::Production release aborted before any release artifact was built or published."
+            echo "::error::Production release aborted before any signed artifact was built or published."
             exit 1
           fi
 
   windows:
     name: Signed Windows packages
-    needs: preflight
+    needs: [preflight, signing-preflight]
     runs-on: windows-latest
     timeout-minutes: 45
+    environment:
+      name: production-signing
+      deployment: false
     env:
       VERSION: ${{ needs.preflight.outputs.version }}
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -109,6 +117,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           dotnet restore tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj
           dotnet test tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj --configuration Release --no-restore
+
+      - name: Require Windows environment secrets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) { throw 'Missing WINDOWS_CERTIFICATE environment secret.' }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) { throw 'Missing WINDOWS_CERTIFICATE_PASSWORD environment secret.' }
 
       - name: Decode Windows signing certificate
         shell: pwsh
@@ -189,9 +204,12 @@ jobs:
 
   macos:
     name: Signed and notarized macOS packages
-    needs: preflight
+    needs: [preflight, signing-preflight]
     runs-on: macos-15
     timeout-minutes: 120
+    environment:
+      name: production-signing
+      deployment: false
     env:
       VERSION: ${{ needs.preflight.outputs.version }}
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
@@ -216,6 +234,14 @@ jobs:
           dotnet restore tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj
           dotnet test tests/PhotoOrganizer.Core.Tests/PhotoOrganizer.Core.Tests.csproj --configuration Release --no-restore
           plutil -lint packaging/macos/PhotoOrganizer.entitlements
+
+      - name: Require macOS environment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD DEVELOPER_ID_APPLICATION APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
+            [[ -n "${!name:-}" ]] || { echo "::error::Missing $name environment secret."; exit 1; }
+          done
 
       - name: Import Developer ID Application certificate
         shell: bash
@@ -410,8 +436,13 @@ jobs:
 
   publish:
     name: Publish complete cross-platform acceptance candidate
-    needs: [preflight, windows, macos]
+    needs: [preflight, signing-preflight, windows, macos]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment:
+      name: production-signing
+      deployment: false
     env:
       RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
       VERSION: ${{ needs.preflight.outputs.version }}
@@ -445,8 +476,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::Release already exists: $RELEASE_TAG"
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Tag already exists. Refusing to reuse a pre-existing release tag: $RELEASE_TAG"
             exit 1
           fi
           gh release create "$RELEASE_TAG" release-assets/* \

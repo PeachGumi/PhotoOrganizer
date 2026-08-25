@@ -2,9 +2,24 @@
 set -euo pipefail
 
 repo="${1:-PeachGumi/PhotoOrganizer}"
+environment="${2:-production-signing}"
 
 command -v gh >/dev/null 2>&1 || { echo "GitHub CLI (gh) is required." >&2; exit 1; }
 gh auth status >/dev/null
+
+# Refuse to place production credentials into an environment until its server-side
+# deployment policy has been verified. Run configure_repository.sh first.
+gh api "repos/${repo}/environments/${environment}" >/dev/null 2>&1 || {
+  echo "Protected environment '${environment}' does not exist. Run Scripts/configure_repository.sh first." >&2
+  exit 1
+}
+[[ "$(gh api "repos/${repo}/environments/${environment}" --jq '.deployment_branch_policy.protected_branches')" == "false" ]]
+[[ "$(gh api "repos/${repo}/environments/${environment}" --jq '.deployment_branch_policy.custom_branch_policies')" == "true" ]]
+[[ "$(gh api "repos/${repo}/environments/${environment}/deployment-branch-policies?per_page=100" --jq '.total_count')" == "1" ]]
+[[ "$(gh api "repos/${repo}/environments/${environment}/deployment-branch-policies?per_page=100" --jq '[.branch_policies[] | select(.name == "main" and ((.type // "branch") == "branch"))] | length')" == "1" ]] || {
+  echo "Environment '${environment}' is not restricted to the main branch. Refusing to configure signing credentials." >&2
+  exit 1
+}
 
 read -r -p "Windows code-signing PFX path: " windows_pfx
 read -r -s -p "Windows PFX password: " windows_password
@@ -27,8 +42,8 @@ echo
 
 set_secret() {
   local name="$1"
-  gh secret set "$name" --repo "$repo"
-  echo "Configured $name"
+  gh secret set "$name" --repo "$repo" --env "$environment"
+  echo "Configured environment secret $name"
 }
 
 base64 < "$windows_pfx" | tr -d '\n' | set_secret WINDOWS_CERTIFICATE
@@ -42,4 +57,26 @@ printf '%s' "$apple_app_password" | set_secret APPLE_APP_SPECIFIC_PASSWORD
 
 unset windows_password mac_password apple_app_password
 
-echo "Release secrets configured for $repo. Values were sent to GitHub through stdin and were not printed by this script."
+required=(
+  WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD
+  MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD DEVELOPER_ID_APPLICATION
+  APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD
+)
+for name in "${required[@]}"; do
+  gh secret list --repo "$repo" --env "$environment" | awk '{print $1}' | grep -Fxq "$name" || {
+    echo "Environment secret verification failed: $name" >&2
+    exit 1
+  }
+done
+
+# Remove legacy repository-level copies only after all protected environment secrets
+# have been confirmed. This closes the old repository-wide credential path.
+repo_secret_names="$(gh secret list --repo "$repo" | awk '{print $1}')"
+for name in "${required[@]}"; do
+  if grep -Fxq "$name" <<< "$repo_secret_names"; then
+    gh secret delete "$name" --repo "$repo"
+    echo "Removed legacy repository secret $name"
+  fi
+done
+
+echo "Release secrets configured and verified in ${environment} for ${repo}. Values were sent through stdin and were not printed by this script."

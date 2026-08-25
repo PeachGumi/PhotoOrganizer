@@ -114,6 +114,8 @@ jobs:
       - name: Validate release helper syntax
         shell: bash
         run: |
+          set -euo pipefail
+          bash -n Scripts/configure_repository.sh
           bash -n Scripts/configure_release_secrets.sh
           bash -n Scripts/build_macos_icon.sh
           bash -n Scripts/smoke_package_macos.sh
@@ -127,13 +129,41 @@ jobs:
           promotion=.github/workflows/promote-release.yml
           project=src/PhotoOrganizer.App/PhotoOrganizer.App.csproj
           window=src/PhotoOrganizer.App/MainWindow.axaml
+          repo_helper=Scripts/configure_repository.sh
+          secret_helper=Scripts/configure_release_secrets.sh
+
           for secret in \
             WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD \
             MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD DEVELOPER_ID_APPLICATION \
             APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
             grep -q "$secret" "$workflow"
           done
-          grep -q 'needs: \[preflight, windows, macos\]' "$workflow"
+
+          # Signing is a protected, manually dispatched main-only capability.
+          grep -q '^  workflow_dispatch:' "$workflow"
+          if grep -q '^  push:' "$workflow"; then
+            echo 'release.yml must not auto-trigger from tags or release branches.'
+            exit 1
+          fi
+          grep -q 'refs/heads/main' "$workflow"
+          [[ "$(grep -c 'name: production-signing' "$workflow")" -ge 4 ]]
+          grep -q 'deployment: false' "$workflow"
+          grep -q 'needs: \[preflight, signing-preflight, windows, macos\]' "$workflow"
+          grep -q 'Tag already exists' "$workflow"
+          grep -q 'contents: read' "$workflow"
+          grep -q 'contents: write' "$workflow"
+
+          # Helpers must build server-side main-only environment boundaries and place
+          # signing secrets there instead of leaving repository-wide credentials.
+          grep -q 'SIGNING_ENVIRONMENT="production-signing"' "$repo_helper"
+          grep -q 'RELEASE_ENVIRONMENT="production-release"' "$repo_helper"
+          grep -q 'configure_main_only_environment' "$repo_helper"
+          grep -q 'deployment-branch-policies' "$repo_helper"
+          grep -q "name='main'" "$repo_helper"
+          grep -q 'actions/permissions/workflow' "$repo_helper"
+          grep -q -- '--env "$environment"' "$secret_helper"
+          grep -q 'Removed legacy repository secret' "$secret_helper"
+
           grep -q 'signtool' "$workflow"
           grep -q 'notarytool submit' "$workflow"
           grep -q 'stapler validate' "$workflow"
@@ -164,7 +194,19 @@ jobs:
             exit 1
           fi
 
-          # Stable promotion requires an explicit real-device acceptance record.
+          # Stable promotion is also main-only and server-gated. A modified promotion
+          # workflow on another ref must not have authority to mutate a release.
+          grep -q '^  workflow_dispatch:' "$promotion"
+          if grep -q '^  push:' "$promotion"; then
+            echo 'promote-release.yml must remain manually dispatched only.'
+            exit 1
+          fi
+          grep -q 'refs/heads/main' "$promotion"
+          grep -q 'name: production-release' "$promotion"
+          grep -q 'deployment: false' "$promotion"
+          grep -q 'needs: ref-preflight' "$promotion"
+          grep -q 'contents: read' "$promotion"
+          grep -q 'contents: write' "$promotion"
           grep -q 'acceptance_confirmed' "$promotion"
           grep -q 'candidate_commit' "$promotion"
           grep -q 'ACCEPTANCE_EVIDENCE' "$promotion"
