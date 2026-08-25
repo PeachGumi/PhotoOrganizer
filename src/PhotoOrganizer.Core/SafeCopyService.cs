@@ -33,7 +33,19 @@ public sealed class SafeCopyService
                 return new CopyResult(CopyStatus.Failed, null, "Zero-byte supported media cannot be imported safely.");
             }
 
+            if (!PathSafety.TryValidateDirectFilesystemPath(destinationDirectory, out var pathError))
+            {
+                return new CopyResult(CopyStatus.Failed, null, $"Destination path is not a direct filesystem path: {pathError}");
+            }
+
             Directory.CreateDirectory(destinationDirectory);
+
+            // Re-check after creation so a path alias can never be accepted merely
+            // because a leaf component did not exist during the first inspection.
+            if (!PathSafety.TryValidateDirectFilesystemPath(destinationDirectory, out pathError))
+            {
+                return new CopyResult(CopyStatus.Failed, null, $"Destination path became unsafe: {pathError}");
+            }
 
             var sourceSize = sourceInfo.Length;
             var sourceLastWriteUtc = sourceInfo.LastWriteTimeUtc;
@@ -96,6 +108,11 @@ public sealed class SafeCopyService
             if (!string.Equals(sourceHashBefore, sourceHashAfter, StringComparison.Ordinal))
             {
                 return new CopyResult(CopyStatus.Failed, null, "Source media changed while copying.");
+            }
+
+            if (!PathSafety.TryValidateDirectFilesystemPath(destinationDirectory, out pathError))
+            {
+                return new CopyResult(CopyStatus.Failed, null, $"Destination path changed before finalization: {pathError}");
             }
 
             var finalPath = resolution.Path;
