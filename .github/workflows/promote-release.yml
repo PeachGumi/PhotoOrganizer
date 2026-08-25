@@ -22,16 +22,35 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: promote-release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
+  ref-preflight:
+    name: Stable promotion ref preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require manual promotion from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Stable promotion must be dispatched from main. Current ref: $GITHUB_REF"
+            exit 1
+          fi
+
   promote:
     name: Promote verified acceptance candidate
+    needs: ref-preflight
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment:
+      name: production-release
+      deployment: false
     env:
       RELEASE_TAG: ${{ inputs.version }}
       EXPECTED_COMMIT: ${{ inputs.candidate_commit }}
