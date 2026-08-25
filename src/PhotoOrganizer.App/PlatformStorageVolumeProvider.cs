@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Management;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Xml.Linq;
 using PhotoOrganizer.Core;
@@ -111,6 +112,7 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
             : null;
     }
 
+    [SupportedOSPlatform("windows")]
     private static string? TryGetWindowsPhysicalDiskFingerprint(string root)
     {
         try
@@ -124,6 +126,7 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
             var query = $"ASSOCIATORS OF {{Win32_LogicalDisk.DeviceID='{logicalDeviceId}'}} WHERE AssocClass=Win32_LogicalDiskToPartition";
             using var searcher = new ManagementObjectSearcher("root\\CIMV2", query);
             using var results = searcher.Get();
+            var diskIndices = new SortedSet<uint>();
 
             foreach (ManagementObject partition in results)
             {
@@ -131,10 +134,14 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
                 {
                     var diskIndex = partition["DiskIndex"];
                     if (diskIndex is null) continue;
-                    var value = Convert.ToUInt32(diskIndex, CultureInfo.InvariantCulture);
-                    return $"windows-physical-disk:{value}";
+                    diskIndices.Add(Convert.ToUInt32(diskIndex, CultureInfo.InvariantCulture));
                 }
             }
+
+            if (diskIndices.Count == 0) return null;
+            return string.Join(
+                '|',
+                diskIndices.Select(index => $"windows-physical-disk:{index}"));
         }
         catch
         {
