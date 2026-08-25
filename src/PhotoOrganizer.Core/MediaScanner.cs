@@ -67,11 +67,11 @@ public sealed class MediaScanner
 
                     if ((attributes & FileAttributes.Directory) != 0)
                     {
-                        if ((attributes & FileAttributes.Hidden) != 0 || entry.Name.StartsWith('.'))
-                        {
-                            continue;
-                        }
-
+                        // Hidden/dot-prefixed directories are still part of the
+                        // camera-card scope. A supported JPG/RAW/video inside one
+                        // would otherwise be silently omitted and could be lost when
+                        // the user reformats the card after a false reuse approval.
+                        // Only reparse points and nested mounted volumes are excluded.
                         if (guard.IsNestedMountedVolume(entry.FullName))
                         {
                             continue;
