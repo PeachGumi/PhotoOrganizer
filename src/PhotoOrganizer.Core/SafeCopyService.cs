@@ -12,6 +12,12 @@ public sealed record CopyResult(CopyStatus Status, string? DestinationPath, stri
 public sealed class SafeCopyService
 {
     private const int BufferSize = 4 * 1024 * 1024;
+    private readonly IFileDurabilityService _durability;
+
+    public SafeCopyService(IFileDurabilityService? durability = null)
+    {
+        _durability = durability ?? new PlatformFileDurabilityService();
+    }
 
     public async Task<CopyResult> CopyAsync(
         string sourcePath,
@@ -60,7 +66,10 @@ public sealed class SafeCopyService
 
             if (resolution.IsDuplicate)
             {
-                return new CopyResult(CopyStatus.SkippedDuplicate, resolution.Path);
+                var durability = _durability.EnsureDurable(resolution.Path);
+                return durability.Success
+                    ? new CopyResult(CopyStatus.SkippedDuplicate, resolution.Path)
+                    : new CopyResult(CopyStatus.Failed, resolution.Path, durability.Error ?? "Existing duplicate could not be committed durably.");
             }
 
             var transactionTemporaryPath = Path.Combine(destinationDirectory, $".partial-{Guid.NewGuid():N}");
@@ -118,31 +127,44 @@ public sealed class SafeCopyService
             var finalPath = resolution.Path;
             while (true)
             {
-                try
+                var finalization = _durability.FinalizeNewFile(transactionTemporaryPath, finalPath, sourceLastWriteUtc);
+                if (finalization.FinalPathCreated)
                 {
-                    File.Move(transactionTemporaryPath, finalPath, overwrite: false);
+                    // Once the temporary file has become a finalized user-library file,
+                    // cleanup must never delete it even when durability later fails.
                     temporaryPathForCleanup = null;
+                }
+
+                if (finalization.Status == FinalizeFileStatus.Committed)
+                {
                     break;
                 }
-                catch (IOException) when (File.Exists(finalPath))
+
+                if (finalization.Status == FinalizeFileStatus.Failed)
                 {
-                    resolution = await ResolveDestinationAsync(
-                        sourcePath,
-                        destinationDirectory,
-                        sourceSize,
-                        sourceHashBefore,
-                        cancellationToken).ConfigureAwait(false);
-
-                    if (resolution.IsDuplicate)
-                    {
-                        return new CopyResult(CopyStatus.SkippedDuplicate, resolution.Path);
-                    }
-
-                    finalPath = resolution.Path;
+                    return new CopyResult(
+                        CopyStatus.Failed,
+                        finalization.FinalPathCreated ? finalPath : null,
+                        finalization.Error ?? "Durable destination finalization failed.");
                 }
-            }
 
-            File.SetLastWriteTimeUtc(finalPath, sourceLastWriteUtc);
+                resolution = await ResolveDestinationAsync(
+                    sourcePath,
+                    destinationDirectory,
+                    sourceSize,
+                    sourceHashBefore,
+                    cancellationToken).ConfigureAwait(false);
+
+                if (resolution.IsDuplicate)
+                {
+                    var durability = _durability.EnsureDurable(resolution.Path);
+                    return durability.Success
+                        ? new CopyResult(CopyStatus.SkippedDuplicate, resolution.Path)
+                        : new CopyResult(CopyStatus.Failed, resolution.Path, durability.Error ?? "Existing duplicate could not be committed durably.");
+                }
+
+                finalPath = resolution.Path;
+            }
 
             var finalInfo = new FileInfo(finalPath);
             if (finalInfo.Length != sourceSize)
