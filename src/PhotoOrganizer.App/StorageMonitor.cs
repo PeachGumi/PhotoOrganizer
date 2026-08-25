@@ -129,17 +129,24 @@ public sealed class StorageMonitor : IDisposable
         }
     }
 
+    [SupportedOSPlatform("windows")]
+    private void DisposeWindowsWatcher()
+    {
+        if (_windowsWatcher is null) return;
+        try { _windowsWatcher.Stop(); } catch { }
+        _windowsWatcher.Dispose();
+        _windowsWatcher = null;
+    }
+
     public void Dispose()
     {
         _started = false;
         _pollTimer?.Dispose();
         _pollTimer = null;
 
-        if (_windowsWatcher is not null)
+        if (OperatingSystem.IsWindows())
         {
-            try { _windowsWatcher.Stop(); } catch { }
-            _windowsWatcher.Dispose();
-            _windowsWatcher = null;
+            DisposeWindowsWatcher();
         }
 
         _macVolumesWatcher?.Dispose();
