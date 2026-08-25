@@ -22,6 +22,24 @@ public interface IStorageVolumeProvider
     MountedVolumeInfo? ResolveVolumeForPath(string path);
 }
 
+public static class PhysicalDeviceIdentity
+{
+    private const char Separator = '|';
+
+    public static bool Overlaps(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right)) return false;
+
+        var leftDevices = left
+            .Split(Separator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return right
+            .Split(Separator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(leftDevices.Contains);
+    }
+}
+
 public static class PathSafety
 {
     public static string Normalize(string path)
