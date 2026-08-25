@@ -21,6 +21,25 @@ public sealed class StorageIdentityTests
     }
 
     [TestMethod]
+    public void Capture_UsesOneMountedSnapshotAndDoesNotResolveAgain()
+    {
+        using var temp = new TempDirectory();
+        var provider = new FakeProvider(temp.Path, "volume-a");
+        var tracker = new StorageSessionTracker(provider);
+
+        var snapshot = tracker.Capture(Path.Combine(temp.Path, "future", "destination"));
+
+        Assert.IsNotNull(snapshot);
+        Assert.AreEqual(1, provider.GetMountedVolumesCallCount);
+        Assert.AreEqual(0, provider.ResolveVolumeForPathCallCount);
+
+        Assert.IsTrue(tracker.Matches(snapshot, temp.Path));
+        Assert.AreEqual(2, provider.GetMountedVolumesCallCount,
+            "Matches should perform one fresh mounted-volume snapshot, not two enumerations.");
+        Assert.AreEqual(0, provider.ResolveVolumeForPathCallCount);
+    }
+
+    [TestMethod]
     public void RemovalAndReinsert_InvalidatesOldSessionEvenForSameFingerprint()
     {
         using var temp = new TempDirectory();
@@ -151,12 +170,15 @@ public sealed class StorageIdentityTests
         public bool Mounted { get; set; } = true;
         public string Fingerprint { get; set; }
         public string? PhysicalDeviceFingerprint { get; set; }
+        public int GetMountedVolumesCallCount { get; private set; }
+        public int ResolveVolumeForPathCallCount { get; private set; }
         public StringComparison PathComparison => OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
 
         public IReadOnlyList<MountedVolumeInfo> GetMountedVolumes()
         {
+            GetMountedVolumesCallCount++;
             if (!Mounted) return [];
             return [new MountedVolumeInfo(
                 _root,
@@ -168,6 +190,7 @@ public sealed class StorageIdentityTests
 
         public MountedVolumeInfo? ResolveVolumeForPath(string path)
         {
+            ResolveVolumeForPathCallCount++;
             if (!Mounted || string.IsNullOrWhiteSpace(Fingerprint)) return null;
             if (!PathSafety.IsSameOrDescendant(path, _root, PathComparison)) return null;
             return new MountedVolumeInfo(
