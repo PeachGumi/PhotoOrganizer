@@ -54,6 +54,40 @@ jobs:
           bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/app-icon.ico "$RUNNER_TEMP/PhotoOrganizer.icns"
           test -s "$RUNNER_TEMP/PhotoOrganizer.icns"
 
+  package-smoke-windows:
+    name: Package smoke — Windows x64/ARM64
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.400
+
+      - name: Build and round-trip unsigned packages
+        shell: pwsh
+        run: ./Scripts/smoke_package_windows.ps1 -OutputRoot "$env:RUNNER_TEMP\photo-organizer-package-smoke"
+
+  package-smoke-macos:
+    name: Package smoke — macOS arm64/x64
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.400
+
+      - name: Build and mount unsigned DMGs
+        shell: bash
+        run: bash Scripts/smoke_package_macos.sh 0.0.0-ci "$RUNNER_TEMP/photo-organizer-package-smoke"
+
   release-contract:
     name: Release contract
     runs-on: ubuntu-latest
@@ -76,6 +110,8 @@ jobs:
         run: |
           bash -n Scripts/configure_release_secrets.sh
           bash -n Scripts/build_macos_icon.sh
+          bash -n Scripts/smoke_package_macos.sh
+          test -s Scripts/smoke_package_windows.ps1
 
       - name: Enforce fail-closed release contract
         shell: bash
@@ -107,6 +143,13 @@ jobs:
           grep -q 'CFBundleIconFile' "$workflow"
           grep -q 'PhotoOrganizer.icns' "$workflow"
 
+          # Normal CI must exercise every release runtime/outer container without
+          # requiring production signing material.
+          grep -q "@('x64', 'arm64')" Scripts/smoke_package_windows.ps1
+          grep -q 'for arch in arm64 x64' Scripts/smoke_package_macos.sh
+          grep -q 'hdiutil verify' Scripts/smoke_package_macos.sh
+          grep -q 'Expand-Archive' Scripts/smoke_package_windows.ps1
+
           # Signed artifacts are acceptance candidates first. The build workflow must
           # never make them the public stable/latest release on its own.
           grep -q -- '--prerelease' "$workflow"
@@ -126,14 +169,16 @@ jobs:
   required:
     name: required
     if: always()
-    needs: [test-and-build, release-contract]
+    needs: [test-and-build, package-smoke-windows, package-smoke-macos, release-contract]
     runs-on: ubuntu-latest
     steps:
-      - name: Require every platform and release-contract job
+      - name: Require every platform, packaging and release-contract job
         shell: bash
         run: |
           if [ "${{ needs.test-and-build.result }}" != "success" ] || \
+             [ "${{ needs.package-smoke-windows.result }}" != "success" ] || \
+             [ "${{ needs.package-smoke-macos.result }}" != "success" ] || \
              [ "${{ needs.release-contract.result }}" != "success" ]; then
-            echo "At least one required Windows/macOS/release-contract job failed."
+            echo "At least one required Windows/macOS/package/release-contract job failed."
             exit 1
           fi
