@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ruby -e "require 'yaml'; YAML.load_file('.github/workflows/release.yml')"
+          ruby -e "require 'yaml'; YAML.load_file('.github/workflows/release.yml'); YAML.load_file('.github/workflows/promote-release.yml')"
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
           ET.parse('packaging/macos/PhotoOrganizer.entitlements')
@@ -72,6 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           workflow=.github/workflows/release.yml
+          promotion=.github/workflows/promote-release.yml
           for secret in \
             WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD \
             MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD DEVELOPER_ID_APPLICATION \
@@ -85,6 +86,22 @@ jobs:
           grep -q 'sha256sum -c' "$workflow"
           grep -q 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' "$workflow"
           grep -q 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' "$workflow"
+
+          # Signed artifacts are acceptance candidates first. The build workflow must
+          # never make them the public stable/latest release on its own.
+          grep -q -- '--prerelease' "$workflow"
+          if grep -q -- '--latest' "$workflow"; then
+            echo 'release.yml must not promote an unaccepted candidate to latest.'
+            exit 1
+          fi
+
+          # Stable promotion requires an explicit real-device acceptance record.
+          grep -q 'acceptance_confirmed' "$promotion"
+          grep -q 'candidate_commit' "$promotion"
+          grep -q 'ACCEPTANCE_EVIDENCE' "$promotion"
+          grep -q 'prerelease.*true' "$promotion"
+          grep -q 'make_latest.*true' "$promotion"
+          grep -q 'RELEASE_ACCEPTANCE.md' "$promotion"
 
   required:
     name: required
