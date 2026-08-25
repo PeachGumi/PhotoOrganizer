@@ -368,7 +368,7 @@ public sealed class ImportCoordinator
                 ImportProgressPhase.Verifying,
                 0,
                 rescan.Files.Count,
-                "Verifying destination bytes with SHA-256."));
+                "Verifying destination SHA-256 and durable storage commit."));
 
             var verification = await _verifier
                 .VerifyAsync(rescan.Files, destination, cancellationToken)
@@ -377,14 +377,14 @@ public sealed class ImportCoordinator
             if (!_storageSessions.Matches(session.SourceIdentity, session.CardRoot)
                 || !_storageSessions.Matches(destinationIdentity, destination))
             {
-                return Blocked("Source or destination storage changed during final byte verification.", summary, verification);
+                return Blocked("Source or destination storage changed during final byte and durability verification.", summary, verification);
             }
 
             if (!verification.IsSafe)
             {
                 errors.AddRange(verification.Errors);
                 return Blocked(
-                    $"Only {verification.Verified} of {verification.Total} supported file(s) were verified in the destination. Do not reuse the card.",
+                    $"Only {verification.Verified} of {verification.Total} supported file(s) were verified and durably synchronized in the destination. Do not reuse the card.",
                     summary,
                     verification);
             }
@@ -393,11 +393,11 @@ public sealed class ImportCoordinator
                 ImportProgressPhase.Verifying,
                 verification.Verified,
                 verification.Total,
-                "Destination copies verified; camera card may be reused."));
+                "Destination copies verified and durably synchronized; camera card may be reused."));
 
             return new ImportRunResult(
                 ImportSafetyStatus.SafeToReuse,
-                $"Verified {verification.Verified} supported file(s) by size and SHA-256. Camera card may be reused.",
+                $"Verified {verification.Verified} supported file(s) by size and SHA-256 and durably synchronized destination storage. Camera card may be reused.",
                 summary,
                 verification);
         }
