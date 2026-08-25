@@ -138,10 +138,11 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
                 }
             }
 
-            if (diskIndices.Count == 0) return null;
-            return string.Join(
-                '|',
-                diskIndices.Select(index => $"windows-physical-disk:{index}"));
+            // A volume backed by multiple physical disks cannot be represented by
+            // one unambiguous physical-device identity. Fail closed rather than risk
+            // accepting a destination that overlaps the camera-card disk.
+            if (diskIndices.Count != 1) return null;
+            return $"windows-physical-disk:{diskIndices.Min}";
         }
         catch
         {
