@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Management;
 using System.Runtime.InteropServices;
@@ -172,48 +171,19 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
     [SupportedOSPlatform("macos")]
     private static MacStorageIdentity? TryGetMacStorageIdentity(string root)
     {
-        try
+        var result = BoundedProcessRunner.Run(
+            "/usr/sbin/diskutil",
+            ["info", "-plist", root],
+            TimeSpan.FromSeconds(5));
+        if (result is null
+            || result.TimedOut
+            || result.ExitCode != 0
+            || string.IsNullOrWhiteSpace(result.StandardOutput))
         {
-            using var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "/usr/sbin/diskutil",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            process.StartInfo.ArgumentList.Add("info");
-            process.StartInfo.ArgumentList.Add("-plist");
-            process.StartInfo.ArgumentList.Add(root);
-
-            if (!process.Start()) return null;
-
-            // Begin draining both redirected pipes before waiting. Reading either
-            // pipe synchronously first can deadlock if the child blocks or fills the
-            // other pipe, which would make the nominal timeout ineffective.
-            var stdout = process.StandardOutput.ReadToEndAsync();
-            var stderr = process.StandardError.ReadToEndAsync();
-            if (!process.WaitForExit(5000))
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                try { process.WaitForExit(1000); } catch { }
-                return null;
-            }
-
-            var output = stdout.GetAwaiter().GetResult();
-            _ = stderr.GetAwaiter().GetResult();
-            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output)) return null;
-
-            return MacDiskutilInfoParser.Parse(output);
-        }
-        catch
-        {
-            // Storage identity is a safety signal. Callers fail closed when unavailable.
             return null;
         }
+
+        return MacDiskutilInfoParser.Parse(result.StandardOutput);
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
