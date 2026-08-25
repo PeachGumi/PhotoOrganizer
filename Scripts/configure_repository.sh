@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="PeachGumi/PhotoOrganizer"
+REPO="${1:-PeachGumi/PhotoOrganizer}"
+SIGNING_ENVIRONMENT="production-signing"
 
+command -v gh >/dev/null 2>&1 || { echo "GitHub CLI (gh) is required." >&2; exit 1; }
 gh auth status >/dev/null
 
 echo "Configuring repository settings for ${REPO}..."
@@ -25,12 +27,21 @@ gh api --method PUT "repos/${REPO}/topics" --input - >/dev/null <<'JSON'
 }
 JSON
 
+# Keep the default GITHUB_TOKEN read-only. Workflows that genuinely publish must
+# request their narrow write permission explicitly.
+gh api --method PUT "repos/${REPO}/actions/permissions/workflow" --input - >/dev/null <<'JSON'
+{
+  "default_workflow_permissions": "read",
+  "can_approve_pull_request_reviews": false
+}
+JSON
+
 # Public repositories can use Dependabot/vulnerability alerts. These calls may be
 # policy-dependent, so a failure is reported but does not hide the successful core settings.
 gh api --method PUT "repos/${REPO}/vulnerability-alerts" >/dev/null || echo "warning: could not enable vulnerability alerts"
 gh api --method PUT "repos/${REPO}/automated-security-fixes" >/dev/null || echo "warning: could not enable automated security fixes"
 
-cat <<'JSON' | gh api --method PUT "repos/PeachGumi/PhotoOrganizer/branches/main/protection" --input - >/dev/null
+cat <<'JSON' | gh api --method PUT "repos/${REPO}/branches/main/protection" --input - >/dev/null
 {
   "required_status_checks": {
     "strict": true,
@@ -51,4 +62,44 @@ cat <<'JSON' | gh api --method PUT "repos/PeachGumi/PhotoOrganizer/branches/main
 }
 JSON
 
-echo "Repository settings and main branch protection configured."
+# Production signing credentials live in an Environment whose server-side branch
+# policy permits only main. Reset the custom policies to exactly one main-branch rule.
+cat <<'JSON' | gh api --method PUT "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}" --input - >/dev/null
+{
+  "deployment_branch_policy": {
+    "protected_branches": false,
+    "custom_branch_policies": true
+  }
+}
+JSON
+
+while IFS= read -r policy_id; do
+  [[ -n "$policy_id" ]] || continue
+  gh api --method DELETE \
+    "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}/deployment-branch-policies/${policy_id}" >/dev/null
+done < <(gh api "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}/deployment-branch-policies?per_page=100" \
+  --jq '.branch_policies[].id')
+
+gh api --method POST \
+  "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}/deployment-branch-policies" \
+  -f name='main' -f type='branch' >/dev/null
+
+# Post-configuration verification is intentionally fatal. Do not print a success
+# message when GitHub rejected or partially applied a hardening setting.
+[[ "$(gh api "repos/${REPO}" --jq '.allow_squash_merge')" == "true" ]]
+[[ "$(gh api "repos/${REPO}" --jq '.allow_merge_commit')" == "false" ]]
+[[ "$(gh api "repos/${REPO}" --jq '.allow_rebase_merge')" == "false" ]]
+[[ "$(gh api "repos/${REPO}" --jq '.allow_auto_merge')" == "true" ]]
+[[ "$(gh api "repos/${REPO}" --jq '.allow_update_branch')" == "true" ]]
+
+[[ "$(gh api "repos/${REPO}/actions/permissions/workflow" --jq '.default_workflow_permissions')" == "read" ]]
+[[ "$(gh api "repos/${REPO}/branches/main/protection" --jq '.enforce_admins.enabled')" == "true" ]]
+[[ "$(gh api "repos/${REPO}/branches/main/protection" --jq '.required_status_checks.strict')" == "true" ]]
+[[ "$(gh api "repos/${REPO}/branches/main/protection" --jq '[.required_status_checks.contexts[] | select(. == "required")] | length')" == "1" ]]
+
+[[ "$(gh api "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}" --jq '.deployment_branch_policy.protected_branches')" == "false" ]]
+[[ "$(gh api "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}" --jq '.deployment_branch_policy.custom_branch_policies')" == "true" ]]
+[[ "$(gh api "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}/deployment-branch-policies?per_page=100" --jq '.total_count')" == "1" ]]
+[[ "$(gh api "repos/${REPO}/environments/${SIGNING_ENVIRONMENT}/deployment-branch-policies?per_page=100" --jq '[.branch_policies[] | select(.name == "main" and ((.type // "branch") == "branch"))] | length')" == "1" ]]
+
+echo "Repository settings, main protection, and ${SIGNING_ENVIRONMENT} main-only policy verified."
