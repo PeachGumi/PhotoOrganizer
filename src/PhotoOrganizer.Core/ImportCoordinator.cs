@@ -92,6 +92,11 @@ public sealed class ImportCoordinator
             return BlockedScan("The camera-card mount-session identity is unavailable.");
         }
 
+        if (string.IsNullOrWhiteSpace(identity.PhysicalDeviceFingerprint))
+        {
+            return BlockedScan("The camera-card physical-device identity is unavailable.");
+        }
+
         var scan = _scanner.Scan(root);
         if (!_storageSessions.Matches(identity, root))
         {
@@ -134,6 +139,11 @@ public sealed class ImportCoordinator
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (string.IsNullOrWhiteSpace(session.SourceIdentity.PhysicalDeviceFingerprint))
+            {
+                return Blocked("The camera-card physical-device identity is unavailable. Scan it again before importing.", summary);
+            }
+
             if (!_storageSessions.Matches(session.SourceIdentity, session.CardRoot))
             {
                 return Blocked("The camera card changed after the successful scan. Scan it again.", summary);
@@ -162,10 +172,23 @@ public sealed class ImportCoordinator
                 return Blocked("Destination mount-session identity is unavailable.", summary);
             }
 
+            if (string.IsNullOrWhiteSpace(destinationIdentity.PhysicalDeviceFingerprint))
+            {
+                return Blocked("Destination physical-device identity is unavailable. Choose a destination whose physical storage can be verified.", summary);
+            }
+
             if (destinationIdentity.SessionId == session.SourceIdentity.SessionId
                 || string.Equals(destinationIdentity.Fingerprint, session.SourceIdentity.Fingerprint, StringComparison.Ordinal))
             {
                 return Blocked("Destination must be on a different volume from the camera card.", summary);
+            }
+
+            if (string.Equals(
+                    destinationIdentity.PhysicalDeviceFingerprint,
+                    session.SourceIdentity.PhysicalDeviceFingerprint,
+                    StringComparison.Ordinal))
+            {
+                return Blocked("Destination must be on a different physical storage device from the camera card.", summary);
             }
 
             var initialFiles = session.Files
