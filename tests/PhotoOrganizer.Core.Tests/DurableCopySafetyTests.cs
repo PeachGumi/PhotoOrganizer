@@ -65,6 +65,30 @@ public sealed class DurableCopySafetyTests
         Assert.IsTrue(result.Errors.Any(error => error.Contains("simulated durability failure", StringComparison.Ordinal)));
     }
 
+    [TestMethod]
+    public async Task FinalReuseVerification_DestinationMutationDuringDurabilityIsRehashedAndBlocked()
+    {
+        using var temp = new TempDirectory();
+        var sourceDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "source")).FullName;
+        var destinationDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "destination")).FullName;
+        var source = Path.Combine(sourceDirectory, "photo.jpg");
+        var destination = Path.Combine(destinationDirectory, "photo.jpg");
+        File.WriteAllText(source, "identical-before-durability");
+        File.WriteAllText(destination, "identical-before-durability");
+
+        var result = await new FormatSafetyVerifier(
+                new MediaClassifier(),
+                durability: new MutateDuringDurabilityService())
+            .VerifyAsync([source], destinationDirectory);
+
+        Assert.IsFalse(result.IsSafe);
+        Assert.AreEqual(0, result.Verified);
+        CollectionAssert.Contains(result.UnverifiedFiles.ToList(), source);
+        Assert.AreEqual("mutated-during-durability", File.ReadAllText(destination));
+        Assert.IsTrue(result.Errors.Any(error =>
+            error.Contains("changed during durable verification", StringComparison.Ordinal)));
+    }
+
     private sealed class FailAfterMoveDurabilityService : IFileDurabilityService
     {
         public FinalizeFileResult FinalizeNewFile(string temporaryPath, string finalPath, DateTime lastWriteUtc)
@@ -88,6 +112,20 @@ public sealed class DurableCopySafetyTests
 
         public DurabilityResult EnsureDurable(string filePath) =>
             new(false, "simulated durability failure");
+    }
+
+    private sealed class MutateDuringDurabilityService : IFileDurabilityService
+    {
+        public FinalizeFileResult FinalizeNewFile(string temporaryPath, string finalPath, DateTime lastWriteUtc) =>
+            throw new NotSupportedException();
+
+        public DurabilityResult EnsureDurable(string filePath)
+        {
+            File.WriteAllText(filePath, "mutated-during-durability");
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            stream.Flush(flushToDisk: true);
+            return new DurabilityResult(true);
+        }
     }
 
     private sealed class TempDirectory : IDisposable

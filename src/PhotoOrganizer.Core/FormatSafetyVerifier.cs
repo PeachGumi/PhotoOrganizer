@@ -59,11 +59,12 @@ public sealed class FormatSafetyVerifier
         var errors = new List<string>();
         var verified = 0;
 
-        // This cache exists only for this one *fresh* verification invocation. It
-        // prevents rereading a destination candidate for multiple source files but
-        // is discarded immediately afterward. A later reuse decision always hashes
-        // destination bytes again from disk.
+        // The first cache is only a cheap within-invocation prefilter. The second
+        // contains only hashes observed *after* successful durable synchronization
+        // and is the only cache that may directly satisfy another identical source
+        // during this same fresh verification invocation.
         var destinationHashCache = new Dictionary<string, string>(PathComparer.Instance);
+        var durableHashCache = new Dictionary<string, string>(PathComparer.Instance);
 
         foreach (var source in supported)
         {
@@ -99,6 +100,17 @@ public sealed class FormatSafetyVerifier
 
                     try
                     {
+                        if (durableHashCache.TryGetValue(candidate, out var durableHash))
+                        {
+                            if (string.Equals(sourceHash, durableHash, StringComparison.Ordinal))
+                            {
+                                matched = true;
+                                break;
+                            }
+
+                            continue;
+                        }
+
                         if (!destinationHashCache.TryGetValue(candidate, out var destinationHash))
                         {
                             destinationHash = await _hasher.Sha256Async(candidate, cancellationToken).ConfigureAwait(false);
@@ -111,8 +123,7 @@ public sealed class FormatSafetyVerifier
                         }
 
                         // A cache-readable SHA match is not sufficient for SD reuse.
-                        // Force the matched independent destination copy to durable
-                        // storage before allowing it to count as verified.
+                        // Synchronize the matched independent destination first.
                         var durability = _durability.EnsureDurable(candidate);
                         if (!durability.Success)
                         {
@@ -120,6 +131,22 @@ public sealed class FormatSafetyVerifier
                             continue;
                         }
 
+                        // Hash again *after* durable synchronization. Another process
+                        // may have replaced or modified the candidate between the first
+                        // hash handle closing and the durability handle opening. The
+                        // earlier hash is therefore only a prefilter, never final proof.
+                        var postDurabilityHash = await _hasher
+                            .Sha256Async(candidate, cancellationToken)
+                            .ConfigureAwait(false);
+                        destinationHashCache[candidate] = postDurabilityHash;
+
+                        if (!string.Equals(sourceHash, postDurabilityHash, StringComparison.Ordinal))
+                        {
+                            errors.Add($"{candidate}: destination bytes changed during durable verification.");
+                            continue;
+                        }
+
+                        durableHashCache[candidate] = postDurabilityHash;
                         matched = true;
                         break;
                     }
