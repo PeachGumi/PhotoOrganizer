@@ -3,6 +3,7 @@ set -euo pipefail
 
 VERSION="${1:-0.0.0-ci}"
 OUTPUT_ROOT="${2:-}"
+mounted_device=""
 
 if [[ -z "$OUTPUT_ROOT" ]]; then
   OUTPUT_ROOT="$(mktemp -d)"
@@ -13,6 +14,10 @@ else
 fi
 
 cleanup() {
+  if [[ -n "$mounted_device" ]]; then
+    hdiutil detach "$mounted_device" >/dev/null 2>&1 || true
+    mounted_device=""
+  fi
   if [[ "$cleanup_root" -eq 1 ]]; then
     rm -rf "$OUTPUT_ROOT"
   fi
@@ -100,13 +105,32 @@ PLIST
 
   mount_point="$OUTPUT_ROOT/$rid/mount"
   mkdir -p "$mount_point"
-  device="$(hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point" | awk 'NR==1 {print $1}')"
-  test -n "$device"
+  attach_plist="$OUTPUT_ROOT/$rid/attach.plist"
+  hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point" -plist > "$attach_plist"
+  mounted_device="$(python3 - "$attach_plist" "$mount_point" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+payload = plistlib.loads(Path(sys.argv[1]).read_bytes())
+target = str(Path(sys.argv[2]).resolve())
+for entity in payload.get("system-entities", []):
+    mount = entity.get("mount-point")
+    device = entity.get("dev-entry")
+    if mount and device and str(Path(mount).resolve()) == target:
+        print(device)
+        break
+else:
+    raise SystemExit("Unable to resolve mounted DMG device from hdiutil plist")
+PY
+)"
+  test -n "$mounted_device"
   test -d "$mount_point/Photo Organizer.app"
   test -L "$mount_point/Applications"
   test -s "$mount_point/LICENSE.txt"
   test -s "$mount_point/Photo Organizer.app/Contents/Resources/PhotoOrganizer.icns"
-  hdiutil detach "$device" >/dev/null
+  hdiutil detach "$mounted_device" >/dev/null
+  mounted_device=""
 
   hash="$(shasum -a 256 "$dmg" | awk '{print $1}')"
   [[ "$hash" =~ ^[0-9a-f]{64}$ ]]
