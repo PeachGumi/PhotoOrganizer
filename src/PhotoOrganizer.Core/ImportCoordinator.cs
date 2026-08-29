@@ -17,6 +17,16 @@ public enum ImportProgressPhase
     Verifying
 }
 
+public enum ScanFailureReason
+{
+    InvalidCardRoot,
+    MissingMountSessionIdentity,
+    MissingPhysicalDeviceIdentity,
+    StorageChanged,
+    IncompleteScan,
+    NoSupportedMedia
+}
+
 public sealed record ImportProgress(ImportProgressPhase Phase, int Current, int Total, string Message);
 
 public sealed record ImportScanSession(
@@ -28,9 +38,11 @@ public sealed record ScanSessionResult(
     ImportSafetyStatus Status,
     ImportScanSession? Session,
     string Message,
-    IReadOnlyList<string> Errors)
+    IReadOnlyList<string> Errors,
+    ScanFailureReason? FailureReason = null)
 {
     public bool IsReady => Status == ImportSafetyStatus.Ready && Session is not null;
+    public bool IsNoSupportedMedia => FailureReason == ScanFailureReason.NoSupportedMedia;
 }
 
 public sealed record ImportSummary(
@@ -87,38 +99,47 @@ public sealed class ImportCoordinator
         var root = _cardRoots.Resolve(selectedPath);
         if (root is null)
         {
-            return BlockedScan("A complete camera-card root containing DCIM or PRIVATE could not be established.");
+            return BlockedScan(
+                "A complete camera-card root containing DCIM or PRIVATE could not be established.",
+                ScanFailureReason.InvalidCardRoot);
         }
 
         var identity = _storageSessions.Capture(root);
         if (identity is null)
         {
-            return BlockedScan("The camera-card mount-session identity is unavailable.");
+            return BlockedScan(
+                "The camera-card mount-session identity is unavailable.",
+                ScanFailureReason.MissingMountSessionIdentity);
         }
 
         if (string.IsNullOrWhiteSpace(identity.PhysicalDeviceFingerprint))
         {
-            return BlockedScan("The camera-card physical-device identity is unavailable.");
+            return BlockedScan(
+                "The camera-card physical-device identity is unavailable.",
+                ScanFailureReason.MissingPhysicalDeviceIdentity);
         }
 
         var scan = _scanner.Scan(root, cancellationToken);
         if (!_storageSessions.Matches(identity, root))
         {
-            return BlockedScan("The camera-card volume changed while it was being scanned.");
+            return BlockedScan(
+                "The camera-card volume changed while it was being scanned.",
+                ScanFailureReason.StorageChanged);
         }
 
         if (!scan.IsComplete)
         {
-            return new ScanSessionResult(
-                ImportSafetyStatus.Blocked,
-                null,
+            return BlockedScan(
                 "The camera card could not be scanned completely.",
+                ScanFailureReason.IncompleteScan,
                 scan.Errors);
         }
 
         if (scan.Files.Count == 0)
         {
-            return BlockedScan("No supported media exists on the selected camera card.");
+            return BlockedScan(
+                "No supported media exists on the selected camera card.",
+                ScanFailureReason.NoSupportedMedia);
         }
 
         return new ScanSessionResult(
@@ -281,8 +302,7 @@ public sealed class ImportCoordinator
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (!_storageSessions.Matches(session.SourceIdentity, session.CardRoot)
-                    || !_storageSessions.Matches(destinationIdentity, destination))
+                if (!StorageMatches(session, destinationIdentity, destination))
                 {
                     return Blocked(
                         "Source or destination storage changed during copying.",
@@ -342,8 +362,7 @@ public sealed class ImportCoordinator
                 return Blocked("One or more supported media files failed to copy. Do not reuse the card.", summary);
             }
 
-            if (!_storageSessions.Matches(session.SourceIdentity, session.CardRoot)
-                || !_storageSessions.Matches(destinationIdentity, destination))
+            if (!StorageMatches(session, destinationIdentity, destination))
             {
                 return Blocked("Source or destination storage changed after copying.", summary);
             }
@@ -356,8 +375,7 @@ public sealed class ImportCoordinator
 
             var rescan = _scanner.Scan(session.CardRoot, cancellationToken);
 
-            if (!_storageSessions.Matches(session.SourceIdentity, session.CardRoot)
-                || !_storageSessions.Matches(destinationIdentity, destination))
+            if (!StorageMatches(session, destinationIdentity, destination))
             {
                 return Blocked("Source or destination storage changed during the post-import rescan.", summary);
             }
@@ -389,8 +407,7 @@ public sealed class ImportCoordinator
                 .VerifyAsync(rescan.Files, destination, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (!_storageSessions.Matches(session.SourceIdentity, session.CardRoot)
-                || !_storageSessions.Matches(destinationIdentity, destination))
+            if (!StorageMatches(session, destinationIdentity, destination))
             {
                 return Blocked("Source or destination storage changed during final byte and durability verification.", summary, verification);
             }
@@ -436,6 +453,13 @@ public sealed class ImportCoordinator
         return sanitized.Trim();
     }
 
+    private bool StorageMatches(
+        ImportScanSession session,
+        StorageSessionIdentity destinationIdentity,
+        string destination) =>
+        _storageSessions.Matches(session.SourceIdentity, session.CardRoot)
+        && _storageSessions.Matches(destinationIdentity, destination);
+
     private static long? TryGetAvailableBytes(string volumeRoot)
     {
         try
@@ -448,8 +472,11 @@ public sealed class ImportCoordinator
         }
     }
 
-    private static ScanSessionResult BlockedScan(string message) =>
-        new(ImportSafetyStatus.Blocked, null, message, []);
+    private static ScanSessionResult BlockedScan(
+        string message,
+        ScanFailureReason failureReason,
+        IReadOnlyList<string>? errors = null) =>
+        new(ImportSafetyStatus.Blocked, null, message, errors ?? [], failureReason);
 
     private static ImportRunResult Blocked(
         string message,
