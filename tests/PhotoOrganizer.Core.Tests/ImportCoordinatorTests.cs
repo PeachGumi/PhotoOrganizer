@@ -243,6 +243,56 @@ public sealed class ImportCoordinatorTests
     }
 
     [TestMethod]
+    public async Task CancellationBeforePostImportRescan_BlocksReusePromptly()
+    {
+        using var env = TestEnvironment.Create();
+        env.AddCameraFile("DCIM/photo.jpg", "camera-data", new DateTime(2026, 9, 11));
+        var coordinator = env.CreateCoordinator();
+        var scan = coordinator.ScanCard(env.CardRoot);
+        using var cancellation = new CancellationTokenSource();
+        var progress = new InlineProgress(update =>
+        {
+            if (update.Phase == ImportProgressPhase.Rescanning)
+            {
+                cancellation.Cancel();
+            }
+        });
+
+        var result = await coordinator.ImportAsync(
+            scan.Session!,
+            env.DestinationRoot,
+            "Event",
+            progress,
+            cancellation.Token);
+
+        Assert.AreEqual(ImportSafetyStatus.Blocked, result.Status);
+        Assert.IsFalse(result.IsSafeToReuse);
+        StringAssert.Contains(result.Message, "cancelled");
+    }
+
+    [TestMethod]
+    public async Task SessionContainingFileOutsideCard_IsRejectedBeforeCopy()
+    {
+        using var env = TestEnvironment.Create();
+        env.AddCameraFile("DCIM/photo.jpg", "camera-data", new DateTime(2026, 9, 12));
+        var coordinator = env.CreateCoordinator();
+        var scan = coordinator.ScanCard(env.CardRoot);
+        var outside = Path.Combine(env.DestinationRoot, "outside.jpg");
+        File.WriteAllText(outside, "unrelated-data");
+        var tamperedSession = scan.Session! with { Files = [outside] };
+
+        var result = await coordinator.ImportAsync(
+            tamperedSession,
+            env.DestinationRoot,
+            "Event");
+
+        Assert.AreEqual(ImportSafetyStatus.Blocked, result.Status);
+        Assert.IsFalse(result.IsSafeToReuse);
+        StringAssert.Contains(result.Message, "outside");
+        Assert.IsFalse(Directory.Exists(Path.Combine(env.DestinationRoot, "2026")));
+    }
+
+    [TestMethod]
     public async Task UnsupportedSidecars_DoNotBlockSupportedMediaReuseApproval()
     {
         using var env = TestEnvironment.Create();

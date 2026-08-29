@@ -274,7 +274,7 @@ jobs:
           set -euo pipefail
           mkdir -p release-assets build
           app_icon="$RUNNER_TEMP/PhotoOrganizer.icns"
-          bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/app-icon.ico "$app_icon"
+          bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/photo-organizer-icon.png "$app_icon"
           test -s "$app_icon"
 
           create_dmg_with_retry() {

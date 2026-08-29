@@ -16,8 +16,10 @@ public sealed class MediaScanner
         _volumeProvider = volumeProvider;
     }
 
-    public MediaScanResult Scan(string root)
+    public MediaScanResult Scan(string root, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var files = new List<string>();
         var errors = new List<string>();
 
@@ -27,6 +29,11 @@ public sealed class MediaScanner
         }
 
         var scanRoot = Path.GetFullPath(root);
+        if (!PathSafety.TryValidateDirectFilesystemPath(scanRoot, out var pathError))
+        {
+            return new MediaScanResult([], [$"Scan root is not a direct filesystem path: {pathError}"]);
+        }
+
         VolumeTraversalGuard guard;
         try
         {
@@ -42,6 +49,7 @@ public sealed class MediaScanner
 
         while (stack.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var current = stack.Pop();
             FileSystemInfo[] entries;
 
@@ -57,6 +65,8 @@ public sealed class MediaScanner
 
             foreach (var entry in entries)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 try
                 {
                     var attributes = entry.Attributes;

@@ -67,7 +67,7 @@ verify_dmg() {
 }
 
 icon="$OUTPUT_ROOT/PhotoOrganizer.icns"
-bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/app-icon.ico "$icon"
+bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/photo-organizer-icon.png "$icon"
 test -s "$icon"
 
 for arch in arm64 x64; do

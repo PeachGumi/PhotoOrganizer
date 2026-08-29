@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -37,9 +38,6 @@ public sealed partial class App : Application
             _desktop = desktop;
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-            _storageMonitor = new StorageMonitor(StorageSessions);
-            _storageMonitor.Start();
-
             _viewModel = new MainWindowViewModel(
                 StorageProvider,
                 StorageSessions,
@@ -61,9 +59,16 @@ public sealed partial class App : Application
             desktop.ShutdownRequested += OnShutdownRequested;
             desktop.Exit += OnExit;
 
+            // Subscribe the view model before starting volume monitoring so a
+            // background refresh cannot lose a mount event during startup. The
+            // monitor's initial refresh runs on a worker thread.
+            _storageMonitor = new StorageMonitor(StorageSessions);
+            _storageMonitor.Start();
+
             // Initial card discovery must also run when the application starts hidden.
             // A detected camera card will request that the workflow window be shown.
-            Dispatcher.UIThread.Post(() => _ = _viewModel.InitializeAsync());
+            var viewModel = _viewModel;
+            Dispatcher.UIThread.Post(() => _ = ObserveBackgroundTaskAsync(viewModel.InitializeAsync()));
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -93,7 +98,7 @@ public sealed partial class App : Application
     {
         if (_desktop is null) return;
 
-        if (_viewModel?.IsProcessing == true)
+        if (_viewModel?.IsBusy == true)
         {
             _viewModel.CanCloseWindow();
             ShowMainWindow();
@@ -107,27 +112,44 @@ public sealed partial class App : Application
 
     private void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
     {
-        if (_explicitQuitRequested || _viewModel?.IsProcessing != true) return;
+        if (_explicitQuitRequested || _viewModel?.IsBusy != true) return;
 
-        // A normal quit/logout request must never interrupt an active import and then
-        // leave the user with a stale reuse approval. Forced process termination can
-        // still happen at the OS level, but safety approval is memory-only and is not
-        // restored after restart.
+        // A normal quit/logout request must never interrupt an active scan/import and
+        // then leave the user with a stale reuse approval. Forced process termination
+        // can still happen at the OS level, but safety approval is memory-only and is
+        // not restored after restart.
         e.Cancel = true;
         _viewModel.CanCloseWindow();
         ShowMainWindow();
     }
 
+    private static async Task ObserveBackgroundTaskAsync(Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            // The view model reports operation failures itself. This guard observes
+            // any unexpected exception left at the application boundary instead of
+            // allowing a fire-and-forget task to become an unobserved fault.
+            Trace.WriteLine($"Photo Organizer startup task failed: {exception}");
+        }
+    }
+
     private void OnExit(object? sender, ControlledApplicationLifetimeExitEventArgs e)
     {
+        // Stop producers before disposing their consumer. Any callbacks already
+        // posted to the dispatcher are ignored by the view model's disposed guard.
+        _storageMonitor?.Dispose();
+        _storageMonitor = null;
+
         if (_viewModel is not null)
         {
             _viewModel.RequestShowWindow -= ShowMainWindow;
             _viewModel.Dispose();
             _viewModel = null;
         }
-
-        _storageMonitor?.Dispose();
-        _storageMonitor = null;
     }
 }

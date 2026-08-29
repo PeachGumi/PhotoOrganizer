@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -19,10 +20,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private MediaClassifier _classifier;
     private ImportCoordinator _coordinator;
     private ImportScanSession? _scanSession;
+    private CancellationTokenSource? _scanCancellation;
     private CancellationTokenSource? _importCancellation;
     private bool _isScanning;
     private bool _isProcessing;
     private bool _changingAutoStart;
+    private bool _disposed;
 
     private string _destinationPath;
     private string _eventName = string.Empty;
@@ -169,7 +172,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         && _scanSession is not null
         && !string.IsNullOrWhiteSpace(DestinationPath)
         && !string.IsNullOrWhiteSpace(EventName);
-    public bool CanCancel => _isProcessing;
+    public bool CanCancel => _isScanning || _isProcessing;
     public int PendingSdCount => _pendingCards.Count;
     public string PendingSdText => PendingSdCount == 0
         ? string.Empty
@@ -177,22 +180,38 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     public async Task InitializeAsync()
     {
-        var candidates = _cardRoots.GetCandidateRoots();
-        if (candidates.Count == 0) return;
+        if (_disposed) return;
 
-        await ScanCardAsync(candidates[0], autoDetected: true).ConfigureAwait(true);
-        foreach (var candidate in candidates.Skip(1)) QueueCard(candidate);
+        try
+        {
+            // Volume enumeration may invoke diskutil/WMI and must never run on the
+            // Avalonia dispatcher. ScanCardAsync performs the same isolation for the
+            // actual card scan below.
+            var candidates = await Task.Run(() => _cardRoots.GetCandidateRoots()).ConfigureAwait(true);
+            if (_disposed || candidates.Count == 0) return;
+
+            await ScanCardAsync(candidates[0], autoDetected: true).ConfigureAwait(true);
+            if (_disposed) return;
+
+            foreach (var candidate in candidates.Skip(1)) QueueCard(candidate);
+        }
+        catch (Exception exception)
+        {
+            ReportOperationFailure("起動時のSDカード検出", exception);
+        }
     }
 
     public async Task ScanCardAsync(string path, bool autoDetected = false)
     {
-        if (string.IsNullOrWhiteSpace(path)) return;
+        if (_disposed || string.IsNullOrWhiteSpace(path)) return;
         if (IsBusy)
         {
             QueueCard(path);
             return;
         }
 
+        var scanCancellation = new CancellationTokenSource();
+        _scanCancellation = scanCancellation;
         _isScanning = true;
         RaiseCommandState();
         ClearScanSession();
@@ -203,7 +222,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             RebuildCoordinator();
-            var result = await Task.Run(() => _coordinator.ScanCard(path)).ConfigureAwait(true);
+            var result = await Task.Run(
+                () => _coordinator.ScanCard(path, scanCancellation.Token),
+                scanCancellation.Token).ConfigureAwait(true);
+            if (_disposed) return;
+
             if (!result.IsReady)
             {
                 if (autoDetected && result.Message.Contains("No supported media", StringComparison.OrdinalIgnoreCase))
@@ -229,22 +252,51 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             AppendLog($"スキャン完了: {result.Session.Files.Count} 件 / {CountLabel}");
             RequestShowWindow?.Invoke();
         }
+        catch (OperationCanceledException)
+        {
+            if (_disposed) return;
+
+            ClearScanSession();
+            SetNotVerified("SDカードのスキャンをキャンセルしました。再スキャンと最終検証が完了するまで再利用しないでください。");
+            ProgressLabel = "スキャンキャンセル";
+            AppendLog("SDカードのスキャンをキャンセルしました。安全確認は未検証のままです。");
+        }
+        catch (Exception exception)
+        {
+            if (_disposed)
+            {
+                Trace.WriteLine($"Photo Organizer card scan failed after disposal: {exception}");
+                return;
+            }
+
+            ClearScanSession();
+            SetBlocked("SDカードのスキャン中に予期しないエラーが発生しました。SDカードを再利用しないでください。");
+            ProgressLabel = "スキャン失敗";
+            AppendLog($"スキャン失敗（予期しないエラー）: {exception.Message}");
+        }
         finally
         {
+            if (ReferenceEquals(_scanCancellation, scanCancellation))
+            {
+                _scanCancellation = null;
+                scanCancellation.Dispose();
+            }
+
             _isScanning = false;
-            RaiseCommandState();
+            if (!_disposed) RaiseCommandState();
         }
     }
 
     public async Task StartImportAsync()
     {
-        if (!CanImport || _scanSession is null) return;
+        if (_disposed || !CanImport || _scanSession is null) return;
 
         var session = _scanSession;
         var destination = DestinationPath;
         var eventName = EventName.Trim();
+        var importCancellation = new CancellationTokenSource();
         _isProcessing = true;
-        _importCancellation = new CancellationTokenSource();
+        _importCancellation = importCancellation;
         RaiseCommandState();
         SetNotVerified("コピー処理中です。最終検証が完了するまでSDカードを再利用しないでください。");
         ProgressLabel = "コピー準備中...";
@@ -254,24 +306,39 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         {
             var progress = new Progress<ImportProgress>(update =>
             {
-                ProgressLabel = update.Message;
-                if (update.Phase == ImportProgressPhase.Verifying)
+                if (_disposed) return;
+
+                try
                 {
-                    SafetyHeadline = "保存先コピーを検証中 — SDカードを再利用しないでください";
-                    SafetyBrush = Brushes.DarkOrange;
+                    ProgressLabel = update.Message;
+                    if (update.Phase == ImportProgressPhase.Verifying)
+                    {
+                        SafetyHeadline = "保存先コピーを検証中 — SDカードを再利用しないでください";
+                        SafetyBrush = Brushes.DarkOrange;
+                    }
+                    if (update.Phase == ImportProgressPhase.Rescanning)
+                    {
+                        AppendLog("コピー処理完了。SDカード全体の再スキャン、実bytes検証、保存先の永続化確認を開始します。");
+                    }
                 }
-                if (update.Phase == ImportProgressPhase.Rescanning)
+                catch (Exception exception)
                 {
-                    AppendLog("コピー処理完了。SDカード全体の再スキャン、実bytes検証、保存先の永続化確認を開始します。");
+                    Trace.WriteLine($"Photo Organizer progress update failed: {exception}");
                 }
             });
 
-            var result = await _coordinator.ImportAsync(
-                session,
-                destination,
-                eventName,
-                progress,
-                _importCancellation.Token).ConfigureAwait(true);
+            // ImportAsync performs synchronous scanner and storage work as well as
+            // asynchronous copy/verification. Run the complete operation away from
+            // the dispatcher so a large card cannot freeze the workflow window.
+            var result = await Task.Run(
+                () => _coordinator.ImportAsync(
+                    session,
+                    destination,
+                    eventName,
+                    progress,
+                    importCancellation.Token),
+                importCancellation.Token).ConfigureAwait(true);
+            if (_disposed) return;
 
             AppendLog($"処理結果: コピー {result.Summary.Copied} / 既存一致 {result.Summary.SkippedAlreadyBackedUp} / 失敗 {result.Summary.Failed}");
             if (!string.IsNullOrWhiteSpace(result.Summary.BasePath)) AppendLog($"保存先: {result.Summary.BasePath}");
@@ -294,35 +361,91 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
                 AppendLog($"最終確認失敗: {result.Message}");
             }
         }
+        catch (OperationCanceledException)
+        {
+            if (_disposed) return;
+
+            SetBlocked("取り込みをキャンセルしました。最終検証が完了していないため、SDカードを再利用しないでください。");
+            ProgressLabel = "取り込みキャンセル";
+            AppendLog("取り込みをキャンセルしました。SDカードの安全確認は未完了です。");
+        }
+        catch (Exception exception)
+        {
+            if (_disposed)
+            {
+                Trace.WriteLine($"Photo Organizer import failed after disposal: {exception}");
+            }
+            else
+            {
+                ReportOperationFailure("取り込み", exception);
+            }
+        }
         finally
         {
-            _importCancellation.Dispose();
-            _importCancellation = null;
-            _isProcessing = false;
-            RaiseCommandState();
-
-            if (_scanSession is null)
+            if (ReferenceEquals(_importCancellation, importCancellation))
             {
-                await ScanNextPendingIfPossibleAsync().ConfigureAwait(true);
+                _importCancellation = null;
+                importCancellation.Dispose();
+            }
+
+            _isProcessing = false;
+            if (!_disposed)
+            {
+                RaiseCommandState();
+
+                if (_scanSession is null)
+                {
+                    try
+                    {
+                        await ScanNextPendingIfPossibleAsync().ConfigureAwait(true);
+                    }
+                    catch (Exception exception)
+                    {
+                        ReportOperationFailure("待機中SDカードのスキャン", exception);
+                    }
+                }
             }
         }
     }
 
     public void CancelImport()
     {
+        if (_disposed) return;
+
+        if (_isScanning)
+        {
+            AppendLog("スキャンキャンセル要求: 安全確認は未検証のままです。");
+            try
+            {
+                _scanCancellation?.Cancel();
+            }
+            catch (Exception exception)
+            {
+                ReportOperationFailure("スキャンキャンセル", exception);
+            }
+            return;
+        }
+
         if (!_isProcessing) return;
         AppendLog("キャンセル要求: 最終検証が完了しないためSDカードは再利用不可のままです。");
-        _importCancellation?.Cancel();
+        try
+        {
+            _importCancellation?.Cancel();
+        }
+        catch (Exception exception)
+        {
+            ReportOperationFailure("取り込みキャンセル", exception);
+        }
     }
 
     public void SetDestinationFromPicker(string path)
     {
-        if (!IsBusy) DestinationPath = path;
+        if (!_disposed && !IsBusy) DestinationPath = path;
     }
 
     public bool CanCloseWindow()
     {
-        if (!_isProcessing) return true;
+        if (_disposed || !IsBusy) return true;
         AppendLog("処理中の通常終了を抑止しました。必要ならキャンセルして処理終了後に閉じてください。");
         return false;
     }
@@ -388,18 +511,25 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     private void OnVolumeMounted(string root)
     {
-        Dispatcher.UIThread.Post(() => _ = HandleVolumeMountedAsync(root));
+        PostUiTask("カメラカード検出", () => HandleVolumeMountedAsync(root));
     }
 
     private async Task HandleVolumeMountedAsync(string root)
     {
+        if (_disposed) return;
+
         string? candidate = null;
         for (var attempt = 0; attempt < 5 && candidate is null; attempt++)
         {
-            candidate = _cardRoots.Resolve(root);
+            if (_disposed) return;
+
+            // Resolving a nested path enumerates mounted volumes and can invoke
+            // diskutil/WMI. Keep that work off the dispatcher even though this
+            // handler itself is resumed on the UI thread.
+            candidate = await Task.Run(() => _cardRoots.Resolve(root)).ConfigureAwait(true);
             if (candidate is null) await Task.Delay(300).ConfigureAwait(true);
         }
-        if (candidate is null) return;
+        if (_disposed || candidate is null) return;
 
         AppendLog($"カメラカード検出: {candidate}");
         if (_scanSession is not null || IsBusy)
@@ -414,11 +544,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     private void OnVolumeRemoved(string root)
     {
-        Dispatcher.UIThread.Post(() => _ = HandleVolumeRemovedAsync(root));
+        PostUiTask("ストレージ取り外し処理", () => HandleVolumeRemovedAsync(root));
     }
 
     private async Task HandleVolumeRemovedAsync(string root)
     {
+        if (_disposed) return;
+
         RemoveQueuedCard(root, volumeRemoval: true);
         var selectedRemoved = _scanSession is not null
             && PathSafety.IsSameOrDescendant(_scanSession.CardRoot, root, _storageSessions.PathComparison);
@@ -471,15 +603,77 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task ScanNextPendingIfPossibleAsync()
     {
-        if (IsBusy || _scanSession is not null) return;
+        if (_disposed || IsBusy || _scanSession is not null) return;
         while (_pendingCards.Count > 0)
         {
+            if (_disposed || IsBusy || _scanSession is not null) return;
+
             var next = _pendingCards[0];
             _pendingCards.RemoveAt(0);
             RaisePendingState();
-            if (!Directory.Exists(next)) continue;
+            var exists = await Task.Run(() => Directory.Exists(next)).ConfigureAwait(true);
+            if (_disposed) return;
+            if (!exists) continue;
             await ScanCardAsync(next, autoDetected: true).ConfigureAwait(true);
             if (_scanSession is not null) return;
+        }
+    }
+
+    private void PostUiTask(string operation, Func<Task> taskFactory)
+    {
+        if (_disposed) return;
+
+        try
+        {
+            Dispatcher.UIThread.Post(() => _ = ObserveUiTaskAsync(operation, taskFactory));
+        }
+        catch (Exception exception)
+        {
+            Trace.WriteLine($"Photo Organizer could not dispatch {operation}: {exception}");
+        }
+    }
+
+    private async Task ObserveUiTaskAsync(string operation, Func<Task> taskFactory)
+    {
+        try
+        {
+            await taskFactory().ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (_disposed)
+        {
+            // Disposal cancellation is expected and must not be reported as a user
+            // failure after the application lifetime has ended.
+        }
+        catch (Exception exception)
+        {
+            ReportOperationFailure(operation, exception);
+        }
+    }
+
+    public void ReportUiFailure(string operation, Exception exception)
+    {
+        ReportOperationFailure(operation, exception);
+    }
+
+    private void ReportOperationFailure(string operation, Exception exception)
+    {
+        if (_disposed)
+        {
+            Trace.WriteLine($"Photo Organizer {operation} failed after disposal: {exception}");
+            return;
+        }
+
+        try
+        {
+            SetBlocked($"{operation}中に予期しないエラーが発生しました。SDカードを再利用しないでください。");
+            ProgressLabel = $"{operation}失敗";
+            AppendLog($"{operation}失敗（予期しないエラー）: {exception.Message}");
+        }
+        catch (Exception reportException)
+        {
+            // A failing PropertyChanged subscriber must not turn a recoverable
+            // operation error into an unhandled dispatcher exception.
+            Trace.WriteLine($"Photo Organizer could not report {operation} failure: {reportException}");
         }
     }
 
@@ -527,9 +721,22 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+
+        _disposed = true;
         _storageSessions.VolumeMounted -= OnVolumeMounted;
         _storageSessions.VolumeRemoved -= OnVolumeRemoved;
-        _importCancellation?.Cancel();
-        _importCancellation?.Dispose();
+
+        try { _scanCancellation?.Cancel(); }
+        catch (Exception exception)
+        {
+            Trace.WriteLine($"Photo Organizer scan cancellation during disposal failed: {exception}");
+        }
+
+        try { _importCancellation?.Cancel(); }
+        catch (Exception exception)
+        {
+            Trace.WriteLine($"Photo Organizer import cancellation during disposal failed: {exception}");
+        }
     }
 }

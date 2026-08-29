@@ -22,7 +22,7 @@ public sealed class DestinationLibrary
         string destinationRoot,
         CancellationToken cancellationToken = default)
     {
-        var index = BuildIndex(destinationRoot);
+        var index = BuildIndex(destinationRoot, cancellationToken);
         var matched = new HashSet<string>(PathComparer.Instance);
         var errors = index.Errors.ToList();
         var destinationHashCache = new Dictionary<string, string>(PathComparer.Instance);
@@ -80,8 +80,12 @@ public sealed class DestinationLibrary
         return new BackupLookupResult(matched, errors);
     }
 
-    private DestinationIndex BuildIndex(string destinationRoot)
+    private DestinationIndex BuildIndex(
+        string destinationRoot,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var filesBySize = new Dictionary<long, List<string>>();
         var errors = new List<string>();
 
@@ -119,6 +123,7 @@ public sealed class DestinationLibrary
 
         while (stack.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var current = stack.Pop();
             FileSystemInfo[] entries;
             try
@@ -133,6 +138,8 @@ public sealed class DestinationLibrary
 
             foreach (var entry in entries)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 try
                 {
                     var attributes = entry.Attributes;

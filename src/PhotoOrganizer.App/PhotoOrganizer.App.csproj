@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>PhotoOrganizer</AssemblyName>
     <RootNamespace>PhotoOrganizer.App</RootNamespace>
-    <ApplicationIcon>Assets/app-icon.ico</ApplicationIcon>
+    <ApplicationIcon>Assets/photo-organizer-icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

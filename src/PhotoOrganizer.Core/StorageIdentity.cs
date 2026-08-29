@@ -172,6 +172,7 @@ public sealed class StorageSessionTracker
         Guid SessionId);
 
     private readonly IStorageVolumeProvider _provider;
+    private readonly object _refreshGate = new();
     private readonly object _gate = new();
     private readonly Dictionary<string, SessionEntry> _sessions;
 
@@ -193,41 +194,53 @@ public sealed class StorageSessionTracker
 
     private Dictionary<string, MountedVolumeInfo> RefreshAndGetSnapshot()
     {
-        var comparer = _provider.PathComparison == StringComparison.OrdinalIgnoreCase
-            ? StringComparer.OrdinalIgnoreCase
-            : StringComparer.Ordinal;
-        var mounted = _provider.GetMountedVolumes()
-            .Where(v => !string.IsNullOrWhiteSpace(v.RootPath) && !string.IsNullOrWhiteSpace(v.Fingerprint))
-            .Select(v => v with { RootPath = PathSafety.Normalize(v.RootPath) })
-            .ToDictionary(v => v.RootPath, v => v, comparer);
-
         List<string> removed = [];
         List<string> added = [];
+        Dictionary<string, MountedVolumeInfo> mounted;
 
-        lock (_gate)
+        // Provider enumeration and session replacement are one serialized refresh.
+        // Otherwise an older, slower enumeration can complete after a newer one and
+        // temporarily resurrect the identity of a volume that has already changed.
+        lock (_refreshGate)
         {
-            foreach (var existing in _sessions.Keys.ToList())
-            {
-                if (!mounted.TryGetValue(existing, out var current)
-                    || !string.Equals(_sessions[existing].Fingerprint, current.Fingerprint, StringComparison.Ordinal)
-                    || !string.Equals(
-                        _sessions[existing].PhysicalDeviceFingerprint,
-                        current.PhysicalDeviceFingerprint,
-                        StringComparison.Ordinal))
-                {
-                    _sessions.Remove(existing);
-                    removed.Add(existing);
-                }
-            }
+            var comparer = _provider.PathComparison == StringComparison.OrdinalIgnoreCase
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
+            mounted = _provider.GetMountedVolumes()
+                .Where(v => !string.IsNullOrWhiteSpace(v.RootPath) && !string.IsNullOrWhiteSpace(v.Fingerprint))
+                .Select(v => v with { RootPath = PathSafety.Normalize(v.RootPath) })
+                .GroupBy(v => v.RootPath, comparer)
+                .Where(group => group
+                    .Select(volume => (volume.Fingerprint, volume.PhysicalDeviceFingerprint))
+                    .Distinct()
+                    .Count() == 1)
+                .ToDictionary(group => group.Key, group => group.First(), comparer);
 
-            foreach (var volume in mounted.Values)
+            lock (_gate)
             {
-                if (_sessions.ContainsKey(volume.RootPath)) continue;
-                _sessions[volume.RootPath] = new SessionEntry(
-                    volume.Fingerprint,
-                    volume.PhysicalDeviceFingerprint,
-                    Guid.NewGuid());
-                added.Add(volume.RootPath);
+                foreach (var existing in _sessions.Keys.ToList())
+                {
+                    if (!mounted.TryGetValue(existing, out var current)
+                        || !string.Equals(_sessions[existing].Fingerprint, current.Fingerprint, StringComparison.Ordinal)
+                        || !string.Equals(
+                            _sessions[existing].PhysicalDeviceFingerprint,
+                            current.PhysicalDeviceFingerprint,
+                            StringComparison.Ordinal))
+                    {
+                        _sessions.Remove(existing);
+                        removed.Add(existing);
+                    }
+                }
+
+                foreach (var volume in mounted.Values)
+                {
+                    if (_sessions.ContainsKey(volume.RootPath)) continue;
+                    _sessions[volume.RootPath] = new SessionEntry(
+                        volume.Fingerprint,
+                        volume.PhysicalDeviceFingerprint,
+                        Guid.NewGuid());
+                    added.Add(volume.RootPath);
+                }
             }
         }
 
@@ -240,9 +253,12 @@ public sealed class StorageSessionTracker
     {
         var normalized = PathSafety.Normalize(rootPath);
         var removed = false;
-        lock (_gate)
+        lock (_refreshGate)
         {
-            removed = _sessions.Remove(normalized);
+            lock (_gate)
+            {
+                removed = _sessions.Remove(normalized);
+            }
         }
 
         if (removed) VolumeRemoved?.Invoke(normalized);

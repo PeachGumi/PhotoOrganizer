@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/app-icon.ico "$RUNNER_TEMP/PhotoOrganizer.icns"
+          bash Scripts/build_macos_icon.sh src/PhotoOrganizer.App/Assets/photo-organizer-icon.png "$RUNNER_TEMP/PhotoOrganizer.icns"
           test -s "$RUNNER_TEMP/PhotoOrganizer.icns"
 
   package-smoke-windows:
@@ -118,6 +118,7 @@ jobs:
           bash -n Scripts/configure_repository.sh
           bash -n Scripts/configure_release_secrets.sh
           bash -n Scripts/build_macos_icon.sh
+          bash -n Scripts/build_windows_icon.sh
           bash -n Scripts/smoke_package_macos.sh
           test -s Scripts/smoke_package_windows.ps1
 
@@ -172,9 +173,10 @@ jobs:
           grep -q 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' "$workflow"
 
           # Product identity must survive both desktop builds and signed packaging.
-          test -s src/PhotoOrganizer.App/Assets/app-icon.ico
-          grep -q '<ApplicationIcon>Assets/app-icon.ico</ApplicationIcon>' "$project"
-          grep -q 'Icon="/Assets/app-icon.ico"' "$window"
+          test -s src/PhotoOrganizer.App/Assets/photo-organizer-icon.png
+          test -s src/PhotoOrganizer.App/Assets/photo-organizer-icon.ico
+          grep -q '<ApplicationIcon>Assets/photo-organizer-icon.ico</ApplicationIcon>' "$project"
+          grep -q 'Icon="/Assets/photo-organizer-icon.ico"' "$window"
           grep -q 'Scripts/build_macos_icon.sh' "$workflow"
           grep -q 'CFBundleIconFile' "$workflow"
           grep -q 'PhotoOrganizer.icns' "$workflow"

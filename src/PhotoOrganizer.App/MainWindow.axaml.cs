@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -55,35 +56,70 @@ public sealed partial class MainWindow : Window
 
     private async void SelectDestination_Click(object? sender, RoutedEventArgs e)
     {
-        if (_viewModel is null || !StorageProvider.CanPickFolder) return;
-
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        try
         {
-            Title = "写真の保存先を選択",
-            AllowMultiple = false
-        });
+            if (_viewModel is null || !StorageProvider.CanPickFolder) return;
 
-        var path = folders.FirstOrDefault()?.TryGetLocalPath();
-        if (!string.IsNullOrWhiteSpace(path)) _viewModel.SetDestinationFromPicker(path);
+            var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "写真の保存先を選択",
+                AllowMultiple = false
+            });
+
+            var path = folders.FirstOrDefault()?.TryGetLocalPath();
+            if (!string.IsNullOrWhiteSpace(path)) _viewModel.SetDestinationFromPicker(path);
+        }
+        catch (OperationCanceledException)
+        {
+            // User cancellation is a normal picker outcome.
+        }
+        catch (Exception exception)
+        {
+            ReportUiFailure("保存先選択", exception);
+        }
     }
 
     private async void SelectSd_Click(object? sender, RoutedEventArgs e)
     {
-        if (_viewModel is null || !StorageProvider.CanPickFolder) return;
-
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        try
         {
-            Title = "SDカードを選択（DCIM/PRIVATE内のフォルダを選択してもカード全体を検証します）",
-            AllowMultiple = false
-        });
+            if (_viewModel is null || !StorageProvider.CanPickFolder) return;
 
-        var path = folders.FirstOrDefault()?.TryGetLocalPath();
-        if (!string.IsNullOrWhiteSpace(path)) await _viewModel.ScanCardAsync(path);
+            var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "SDカードを選択（DCIM/PRIVATE内のフォルダを選択してもカード全体を検証します）",
+                AllowMultiple = false
+            });
+
+            var path = folders.FirstOrDefault()?.TryGetLocalPath();
+            if (!string.IsNullOrWhiteSpace(path)) await _viewModel.ScanCardAsync(path);
+        }
+        catch (OperationCanceledException)
+        {
+            // User cancellation is a normal picker outcome.
+        }
+        catch (Exception exception)
+        {
+            ReportUiFailure("SDカード選択", exception);
+        }
     }
 
     private async void Import_Click(object? sender, RoutedEventArgs e)
     {
-        if (_viewModel is not null) await _viewModel.StartImportAsync();
+        try
+        {
+            if (_viewModel is not null) await _viewModel.StartImportAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // StartImportAsync normally converts cancellation into a blocked result.
+            // Keep the UI handler safe if cancellation happens before the operation
+            // is scheduled.
+        }
+        catch (Exception exception)
+        {
+            ReportUiFailure("取り込み", exception);
+        }
     }
 
     private void Cancel_Click(object? sender, RoutedEventArgs e)
@@ -148,7 +184,26 @@ public sealed partial class MainWindow : Window
     {
         if (e.PropertyName is nameof(MainWindowViewModel.DestinationPath) or nameof(MainWindowViewModel.EventName))
         {
-            UpdateDestinationPreview();
+            try
+            {
+                UpdateDestinationPreview();
+            }
+            catch (Exception exception)
+            {
+                ReportUiFailure("保存先プレビュー更新", exception);
+            }
+        }
+    }
+
+    private void ReportUiFailure(string operation, Exception exception)
+    {
+        if (_viewModel is not null)
+        {
+            _viewModel.ReportUiFailure(operation, exception);
+        }
+        else
+        {
+            Trace.WriteLine($"Photo Organizer {operation} failed before view model initialization: {exception}");
         }
     }
 

@@ -45,7 +45,7 @@ public sealed class FormatSafetyVerifier
             return new FormatVerificationResult(0, 0, [], ["No supported media exists to verify."]);
         }
 
-        var destinationIndex = BuildDestinationIndex(destinationRoot);
+        var destinationIndex = BuildDestinationIndex(destinationRoot, cancellationToken);
         if (destinationIndex.Errors.Count > 0)
         {
             return new FormatVerificationResult(
@@ -59,12 +59,10 @@ public sealed class FormatSafetyVerifier
         var errors = new List<string>();
         var verified = 0;
 
-        // The first cache is only a cheap within-invocation prefilter. The second
-        // contains only hashes observed *after* successful durable synchronization
-        // and is the only cache that may directly satisfy another identical source
-        // during this same fresh verification invocation.
+        // This cache is only a cheap within-invocation prefilter. A cached hash may
+        // never approve reuse by itself: every source-to-destination match receives a
+        // fresh durability sync and post-sync hash below.
         var destinationHashCache = new Dictionary<string, string>(PathComparer.Instance);
-        var durableHashCache = new Dictionary<string, string>(PathComparer.Instance);
 
         foreach (var source in supported)
         {
@@ -76,6 +74,13 @@ public sealed class FormatSafetyVerifier
                 if (!sourceInfo.Exists || sourceInfo.Length <= 0)
                 {
                     unverified.Add(source);
+                    continue;
+                }
+
+                if (!PathSafety.TryValidateDirectFilesystemPath(source, out var sourcePathError))
+                {
+                    unverified.Add(source);
+                    errors.Add($"{source}: source path is not direct: {sourcePathError}");
                     continue;
                 }
 
@@ -100,14 +105,9 @@ public sealed class FormatSafetyVerifier
 
                     try
                     {
-                        if (durableHashCache.TryGetValue(candidate, out var durableHash))
+                        if (!PathSafety.TryValidateDirectFilesystemPath(candidate, out var candidatePathError))
                         {
-                            if (string.Equals(sourceHash, durableHash, StringComparison.Ordinal))
-                            {
-                                matched = true;
-                                break;
-                            }
-
+                            errors.Add($"{candidate}: destination path is not direct: {candidatePathError}");
                             continue;
                         }
 
@@ -131,6 +131,12 @@ public sealed class FormatSafetyVerifier
                             continue;
                         }
 
+                        if (!PathSafety.TryValidateDirectFilesystemPath(candidate, out candidatePathError))
+                        {
+                            errors.Add($"{candidate}: destination path changed during durable verification: {candidatePathError}");
+                            continue;
+                        }
+
                         // Hash again *after* durable synchronization. Another process
                         // may have replaced or modified the candidate between the first
                         // hash handle closing and the durability handle opening. The
@@ -146,7 +152,24 @@ public sealed class FormatSafetyVerifier
                             continue;
                         }
 
-                        durableHashCache[candidate] = postDurabilityHash;
+                        // Re-read the source after the destination durability proof.
+                        // Without this step, media changed in place during the durable
+                        // sync could be approved based on an obsolete source hash.
+                        if (!PathSafety.TryValidateDirectFilesystemPath(source, out sourcePathError))
+                        {
+                            errors.Add($"{source}: source path changed during durable verification: {sourcePathError}");
+                            continue;
+                        }
+
+                        var freshSourceHash = await _hasher
+                            .Sha256Async(source, cancellationToken)
+                            .ConfigureAwait(false);
+                        if (!string.Equals(freshSourceHash, postDurabilityHash, StringComparison.Ordinal))
+                        {
+                            errors.Add($"{source}: source bytes changed during durable verification.");
+                            continue;
+                        }
+
                         matched = true;
                         break;
                     }
@@ -175,8 +198,12 @@ public sealed class FormatSafetyVerifier
         return new FormatVerificationResult(supported.Length, verified, unverified, errors);
     }
 
-    private DestinationIndex BuildDestinationIndex(string destinationRoot)
+    private DestinationIndex BuildDestinationIndex(
+        string destinationRoot,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var index = new Dictionary<long, List<string>>();
         var errors = new List<string>();
 
@@ -215,6 +242,7 @@ public sealed class FormatSafetyVerifier
 
         while (stack.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var current = stack.Pop();
             FileSystemInfo[] entries;
 
@@ -230,6 +258,8 @@ public sealed class FormatSafetyVerifier
 
             foreach (var entry in entries)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 try
                 {
                     var attributes = entry.Attributes;

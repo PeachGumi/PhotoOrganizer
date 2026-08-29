@@ -8,7 +8,7 @@
 
   <TrayIcon.Icons>
     <TrayIcons>
-      <TrayIcon Icon="/Assets/app-icon.ico"
+      <TrayIcon Icon="/Assets/photo-organizer-icon.ico"
                 ToolTipText="Photo Organizer"
                 Clicked="TrayIcon_Clicked">
         <TrayIcon.Menu>

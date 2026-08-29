@@ -89,6 +89,52 @@ public sealed class DurableCopySafetyTests
             error.Contains("changed during durable verification", StringComparison.Ordinal)));
     }
 
+    [TestMethod]
+    public async Task FinalReuseVerification_SourceMutationDuringDurabilityIsRehashedAndBlocked()
+    {
+        using var temp = new TempDirectory();
+        var sourceDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "source")).FullName;
+        var destinationDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "destination")).FullName;
+        var source = Path.Combine(sourceDirectory, "photo.jpg");
+        var destination = Path.Combine(destinationDirectory, "photo.jpg");
+        File.WriteAllText(source, "identical-before-durability");
+        File.WriteAllText(destination, "identical-before-durability");
+
+        var result = await new FormatSafetyVerifier(
+                new MediaClassifier(),
+                durability: new MutateSourceDuringDurabilityService(source))
+            .VerifyAsync([source], destinationDirectory);
+
+        Assert.IsFalse(result.IsSafe);
+        Assert.AreEqual(0, result.Verified);
+        Assert.AreEqual("mutated-source-during-durability", File.ReadAllText(source));
+        Assert.IsTrue(result.Errors.Any(error =>
+            error.Contains("source bytes changed", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task FinalReuseVerification_DoesNotReuseStaleDurableProofForAnotherSource()
+    {
+        using var temp = new TempDirectory();
+        var sourceDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "source")).FullName;
+        var destinationDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "destination")).FullName;
+        var source1 = Path.Combine(sourceDirectory, "one.jpg");
+        var source2 = Path.Combine(sourceDirectory, "two.jpg");
+        var destination = Path.Combine(destinationDirectory, "photo.jpg");
+        File.WriteAllText(source1, "same-payload");
+        File.WriteAllText(source2, "same-payload");
+        File.WriteAllText(destination, "same-payload");
+
+        var result = await new FormatSafetyVerifier(
+                new MediaClassifier(),
+                hasher: new MutateDestinationOnSecondSourceHasher(source2, destination))
+            .VerifyAsync([source1, source2], destinationDirectory);
+
+        Assert.IsFalse(result.IsSafe);
+        Assert.AreEqual(1, result.Verified);
+        Assert.AreEqual("same-length!!", File.ReadAllText(destination));
+    }
+
     private sealed class FailAfterMoveDurabilityService : IFileDurabilityService
     {
         public FinalizeFileResult FinalizeNewFile(string temporaryPath, string finalPath, DateTime lastWriteUtc)
@@ -125,6 +171,41 @@ public sealed class DurableCopySafetyTests
             using var stream = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
             stream.Flush(flushToDisk: true);
             return new DurabilityResult(true);
+        }
+    }
+
+    private sealed class MutateSourceDuringDurabilityService(string sourcePath) : IFileDurabilityService
+    {
+        public FinalizeFileResult FinalizeNewFile(string temporaryPath, string finalPath, DateTime lastWriteUtc) =>
+            throw new NotSupportedException();
+
+        public DurabilityResult EnsureDurable(string filePath)
+        {
+            File.WriteAllText(sourcePath, "mutated-source-during-durability");
+            return new DurabilityResult(true);
+        }
+    }
+
+    private sealed class MutateDestinationOnSecondSourceHasher(
+        string secondSource,
+        string destination) : IFileHasher
+    {
+        private bool _mutated;
+
+        public Task<string> Sha256Async(string path, CancellationToken cancellationToken = default)
+        {
+            if (!_mutated && string.Equals(
+                    Path.GetFullPath(path),
+                    Path.GetFullPath(secondSource),
+                    OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal))
+            {
+                _mutated = true;
+                File.WriteAllText(destination, "same-length!!");
+            }
+
+            return Hashing.Sha256Async(path, cancellationToken);
         }
     }
 

@@ -73,7 +73,6 @@ public sealed class SafeCopyService
             }
 
             var transactionTemporaryPath = Path.Combine(destinationDirectory, $".partial-{Guid.NewGuid():N}");
-            temporaryPathForCleanup = transactionTemporaryPath;
 
             await using (var source = new FileStream(
                              sourcePath,
@@ -90,6 +89,10 @@ public sealed class SafeCopyService
                              BufferSize,
                              FileOptions.Asynchronous | FileOptions.WriteThrough))
             {
+                // Cleanup ownership starts only after CreateNew succeeds. If another
+                // process already owns the randomly selected name, its file must never
+                // be deleted by this transaction's finally block.
+                temporaryPathForCleanup = transactionTemporaryPath;
                 await source.CopyToAsync(destination, BufferSize, cancellationToken).ConfigureAwait(false);
                 await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
                 destination.Flush(flushToDisk: true);
@@ -226,6 +229,13 @@ public sealed class SafeCopyService
             if (!File.Exists(candidate))
             {
                 return (candidate, false);
+            }
+
+            // A file-level symlink/reparse point is an immutable collision, never a
+            // byte-identical independent backup of the source.
+            if (!PathSafety.TryValidateDirectFilesystemPath(candidate, out _))
+            {
+                continue;
             }
 
             var candidateInfo = new FileInfo(candidate);

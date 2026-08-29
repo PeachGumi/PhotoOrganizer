@@ -80,6 +80,42 @@ public sealed class PathAliasSafetyTests
             Path.GetFileName(path).StartsWith(".partial-", StringComparison.Ordinal)));
     }
 
+    [TestMethod]
+    public void MediaScanner_RejectsSymlinkRoot()
+    {
+        using var temp = new TempDirectory();
+        var target = Directory.CreateDirectory(Path.Combine(temp.Path, "actual-card")).FullName;
+        Directory.CreateDirectory(Path.Combine(target, "DCIM"));
+        File.WriteAllText(Path.Combine(target, "DCIM", "photo.jpg"), "camera-data");
+        var alias = Path.Combine(temp.Path, "card-alias");
+        CreateDirectorySymlinkOrSkip(alias, target);
+
+        var result = new MediaScanner(new MediaClassifier()).Scan(alias);
+
+        Assert.IsFalse(result.IsComplete);
+        Assert.AreEqual(0, result.Files.Count);
+        Assert.IsTrue(result.Errors.Any(error => error.Contains("direct filesystem path", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task SafeCopyService_FileSymlinkCollisionIsNeverAcceptedAsDuplicate()
+    {
+        using var temp = new TempDirectory();
+        var sourceDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "camera")).FullName;
+        var destinationDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "destination")).FullName;
+        var source = Path.Combine(sourceDirectory, "photo.jpg");
+        var alias = Path.Combine(destinationDirectory, "photo.jpg");
+        File.WriteAllText(source, "camera-data");
+        CreateFileSymlinkOrSkip(alias, source);
+
+        var result = await new SafeCopyService().CopyAsync(source, destinationDirectory);
+
+        Assert.AreEqual(CopyStatus.Copied, result.Status, result.Error);
+        Assert.AreEqual(Path.Combine(destinationDirectory, "photo_2.jpg"), result.DestinationPath);
+        Assert.AreEqual("camera-data", File.ReadAllText(source));
+        Assert.AreEqual("camera-data", File.ReadAllText(result.DestinationPath!));
+    }
+
     private static void CreateDirectorySymlinkOrSkip(string alias, string target)
     {
         try
@@ -91,6 +127,20 @@ public sealed class PathAliasSafetyTests
                                    or IOException)
         {
             Assert.Inconclusive($"Directory symbolic links are unavailable in this test environment: {ex.Message}");
+        }
+    }
+
+    private static void CreateFileSymlinkOrSkip(string alias, string target)
+    {
+        try
+        {
+            File.CreateSymbolicLink(alias, target);
+        }
+        catch (Exception ex) when (ex is PlatformNotSupportedException
+                                   or UnauthorizedAccessException
+                                   or IOException)
+        {
+            Assert.Inconclusive($"File symbolic links are unavailable in this test environment: {ex.Message}");
         }
     }
 

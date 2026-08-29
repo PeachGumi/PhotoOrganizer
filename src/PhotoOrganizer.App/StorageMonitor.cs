@@ -11,7 +11,7 @@ public sealed class StorageMonitor : IDisposable
     private Timer? _pollTimer;
     private FileSystemWatcher? _macVolumesWatcher;
     private ManagementEventWatcher? _windowsWatcher;
-    private bool _started;
+    private int _started;
 
     public StorageMonitor(StorageSessionTracker tracker)
     {
@@ -20,11 +20,12 @@ public sealed class StorageMonitor : IDisposable
 
     public void Start()
     {
-        if (_started) return;
-        _started = true;
+        if (Interlocked.Exchange(ref _started, 1) == 1) return;
 
-        SafeRefresh();
-        _pollTimer = new Timer(_ => SafeRefresh(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        // Do not enumerate volumes synchronously on Avalonia's UI thread. The zero
+        // due time schedules the initial refresh on the timer thread while retaining
+        // the one-second polling fallback thereafter.
+        _pollTimer = new Timer(_ => SafeRefresh(), null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
 
         if (OperatingSystem.IsWindows())
         {
@@ -114,9 +115,11 @@ public sealed class StorageMonitor : IDisposable
 
     private void SafeRefresh()
     {
+        if (Volatile.Read(ref _started) == 0) return;
         if (!Monitor.TryEnter(_refreshGate)) return;
         try
         {
+            if (Volatile.Read(ref _started) == 0) return;
             _tracker.Refresh();
         }
         catch
@@ -140,7 +143,7 @@ public sealed class StorageMonitor : IDisposable
 
     public void Dispose()
     {
-        _started = false;
+        if (Interlocked.Exchange(ref _started, 0) == 0) return;
         _pollTimer?.Dispose();
         _pollTimer = null;
 

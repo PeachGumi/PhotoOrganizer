@@ -78,8 +78,12 @@ public sealed class ImportCoordinator
         _cardRoots = cardRoots;
     }
 
-    public ScanSessionResult ScanCard(string selectedPath)
+    public ScanSessionResult ScanCard(
+        string selectedPath,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var root = _cardRoots.Resolve(selectedPath);
         if (root is null)
         {
@@ -97,7 +101,7 @@ public sealed class ImportCoordinator
             return BlockedScan("The camera-card physical-device identity is unavailable.");
         }
 
-        var scan = _scanner.Scan(root);
+        var scan = _scanner.Scan(root, cancellationToken);
         if (!_storageSessions.Matches(identity, root))
         {
             return BlockedScan("The camera-card volume changed while it was being scanned.");
@@ -199,6 +203,17 @@ public sealed class ImportCoordinator
             if (initialFiles.Count == 0)
             {
                 return Blocked("The scan session contains no supported media.", summary);
+            }
+
+            foreach (var source in initialFiles)
+            {
+                if (!PathSafety.IsSameOrDescendant(source, session.CardRoot, _storageSessions.PathComparison)
+                    || !PathSafety.TryValidateDirectFilesystemPath(source, out _))
+                {
+                    return Blocked(
+                        "The scan session contains media outside the direct camera-card filesystem path. Scan the card again.",
+                        summary);
+                }
             }
 
             var lookup = await _destinationLibrary
@@ -339,7 +354,7 @@ public sealed class ImportCoordinator
                 initialFiles.Count,
                 "Rescanning the complete camera card."));
 
-            var rescan = _scanner.Scan(session.CardRoot);
+            var rescan = _scanner.Scan(session.CardRoot, cancellationToken);
 
             if (!_storageSessions.Matches(session.SourceIdentity, session.CardRoot)
                 || !_storageSessions.Matches(destinationIdentity, destination))
