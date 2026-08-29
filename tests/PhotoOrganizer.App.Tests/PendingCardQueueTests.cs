@@ -85,6 +85,49 @@ public sealed class PendingCardQueueTests
         StringAssert.Contains(viewModel.SafetyDetail, "physical-device identity");
     }
 
+    [TestMethod]
+    public async Task QueueDrain_StopsOnSafetyFailureAndLeavesLaterCardPending()
+    {
+        using var temp = new TempDirectory();
+        var emptyCard = Directory.CreateDirectory(Path.Combine(temp.Path, "01-empty-card")).FullName;
+        var brokenCard = Directory.CreateDirectory(Path.Combine(temp.Path, "02-broken-card")).FullName;
+        var validCard = Directory.CreateDirectory(Path.Combine(temp.Path, "03-valid-card")).FullName;
+        Directory.CreateDirectory(Path.Combine(emptyCard, "DCIM"));
+        var brokenDcim = Directory.CreateDirectory(Path.Combine(brokenCard, "DCIM")).FullName;
+        var validDcim = Directory.CreateDirectory(Path.Combine(validCard, "DCIM")).FullName;
+        File.WriteAllText(Path.Combine(brokenDcim, "broken.jpg"), "camera-data");
+        File.WriteAllText(Path.Combine(validDcim, "photo.jpg"), "camera-data");
+
+        using var provider = new BlockingVolumeProvider(
+        [
+            new MountedVolumeInfo(emptyCard, "volume-empty", true, false, "device-empty"),
+            new MountedVolumeInfo(brokenCard, "volume-broken", true, false, null),
+            new MountedVolumeInfo(validCard, "volume-valid", true, false, "device-valid")
+        ]);
+        var sessions = new StorageSessionTracker(provider);
+        var roots = new CameraCardRootResolver(provider);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+
+        var firstScan = viewModel.ScanCardAsync(emptyCard, autoDetected: true);
+        Assert.IsTrue(
+            provider.FirstEnumerationEntered.Wait(TimeSpan.FromSeconds(5)),
+            "The first scan did not enter volume enumeration in time.");
+
+        Assert.IsNull(await viewModel.ScanCardAsync(brokenCard, autoDetected: true));
+        Assert.IsNull(await viewModel.ScanCardAsync(validCard, autoDetected: true));
+        Assert.AreEqual(2, viewModel.PendingSdCount);
+
+        provider.ReleaseFirstEnumeration.Set();
+        var firstResult = await firstScan.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.IsNotNull(firstResult);
+        Assert.IsTrue(firstResult.IsNoSupportedMedia);
+        Assert.AreEqual(string.Empty, viewModel.SelectedSdPath);
+        Assert.AreEqual("スキャン失敗", viewModel.ProgressLabel);
+        Assert.AreEqual(1, viewModel.PendingSdCount);
+        StringAssert.Contains(viewModel.SafetyDetail, "physical-device identity");
+    }
+
     private sealed class BlockingVolumeProvider(IReadOnlyList<MountedVolumeInfo> volumes)
         : IStorageVolumeProvider, IDisposable
     {
