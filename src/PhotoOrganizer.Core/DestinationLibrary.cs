@@ -22,7 +22,11 @@ public sealed class DestinationLibrary
         string destinationRoot,
         CancellationToken cancellationToken = default)
     {
-        var index = BuildIndex(destinationRoot, cancellationToken);
+        var index = DestinationFileIndexer.Build(
+            destinationRoot,
+            _volumeProvider,
+            requireExistingRoot: false,
+            cancellationToken: cancellationToken);
         var matched = new HashSet<string>(PathComparer.Instance);
         var errors = index.Errors.ToList();
         var destinationHashCache = new Dictionary<string, string>(PathComparer.Instance);
@@ -79,106 +83,4 @@ public sealed class DestinationLibrary
 
         return new BackupLookupResult(matched, errors);
     }
-
-    private DestinationIndex BuildIndex(
-        string destinationRoot,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var filesBySize = new Dictionary<long, List<string>>();
-        var errors = new List<string>();
-
-        if (string.IsNullOrWhiteSpace(destinationRoot))
-        {
-            errors.Add("Destination root is empty.");
-            return new DestinationIndex(filesBySize, errors);
-        }
-
-        if (!PathSafety.TryValidateDirectFilesystemPath(destinationRoot, out var pathError))
-        {
-            errors.Add($"Destination root is not a direct filesystem path: {pathError}");
-            return new DestinationIndex(filesBySize, errors);
-        }
-
-        if (!Directory.Exists(destinationRoot))
-        {
-            return new DestinationIndex(filesBySize, errors);
-        }
-
-        var root = Path.GetFullPath(destinationRoot);
-        VolumeTraversalGuard guard;
-        try
-        {
-            guard = VolumeTraversalGuard.Create(root, _volumeProvider);
-        }
-        catch (Exception ex)
-        {
-            errors.Add($"Unable to establish destination volume boundary: {ex.Message}");
-            return new DestinationIndex(filesBySize, errors);
-        }
-
-        var stack = new Stack<string>();
-        stack.Push(root);
-
-        while (stack.Count > 0)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var current = stack.Pop();
-            FileSystemInfo[] entries;
-            try
-            {
-                entries = new DirectoryInfo(current).EnumerateFileSystemInfos().ToArray();
-            }
-            catch (Exception ex)
-            {
-                errors.Add($"{current}: {ex.Message}");
-                continue;
-            }
-
-            foreach (var entry in entries)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
-                {
-                    var attributes = entry.Attributes;
-                    if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
-
-                    if ((attributes & FileAttributes.Directory) != 0)
-                    {
-                        if ((attributes & FileAttributes.Hidden) != 0 || entry.Name.StartsWith('.')) continue;
-                        if (guard.IsNestedMountedVolume(entry.FullName)) continue;
-                        stack.Push(entry.FullName);
-                        continue;
-                    }
-
-                    if (entry is not FileInfo file
-                        || file.Length <= 0
-                        || file.Name.StartsWith(".partial-", StringComparison.Ordinal)
-                        || file.Name.Contains(".partial-", StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    if (!filesBySize.TryGetValue(file.Length, out var candidates))
-                    {
-                        candidates = [];
-                        filesBySize[file.Length] = candidates;
-                    }
-                    candidates.Add(file.FullName);
-                }
-                catch (Exception ex)
-                {
-                    errors.Add($"{entry.FullName}: {ex.Message}");
-                }
-            }
-        }
-
-        return new DestinationIndex(filesBySize, errors);
-    }
-
-    private sealed record DestinationIndex(
-        Dictionary<long, List<string>> FilesBySize,
-        IReadOnlyList<string> Errors);
 }
