@@ -68,7 +68,8 @@ public sealed partial class App : Application
             // Initial card discovery must also run when the application starts hidden.
             // A detected camera card will request that the workflow window be shown.
             var viewModel = _viewModel;
-            Dispatcher.UIThread.Post(() => _ = ObserveBackgroundTaskAsync(viewModel.InitializeAsync()));
+            Dispatcher.UIThread.Post(() => _ = ObserveBackgroundTaskAsync(
+                StartupCardDiscovery.InitializeAsync(viewModel, CameraCardRoots)));
         }
 
         base.OnFrameworkInitializationCompleted();
