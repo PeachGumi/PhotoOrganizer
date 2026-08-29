@@ -25,7 +25,7 @@ public sealed class StartupCardDiscoveryTests
         var roots = new CameraCardRootResolver(provider);
         using var viewModel = new MainWindowViewModel(provider, sessions, roots);
 
-        await StartupCardDiscovery.InitializeAsync(viewModel, roots);
+        await viewModel.InitializeAsync();
 
         Assert.AreEqual(PathSafety.Normalize(validCard), viewModel.SelectedSdPath);
         Assert.AreEqual("RAW:0 / JPG:1 / MP4:0", viewModel.CountLabel);
@@ -53,7 +53,7 @@ public sealed class StartupCardDiscoveryTests
         var roots = new CameraCardRootResolver(provider);
         using var viewModel = new MainWindowViewModel(provider, sessions, roots);
 
-        await StartupCardDiscovery.InitializeAsync(viewModel, roots);
+        await viewModel.InitializeAsync();
 
         Assert.AreEqual(string.Empty, viewModel.SelectedSdPath);
         Assert.AreEqual("スキャン失敗", viewModel.ProgressLabel);

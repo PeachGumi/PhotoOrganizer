@@ -66,10 +66,7 @@ public sealed class SafeCopyService
 
             if (resolution.IsDuplicate)
             {
-                var durability = _durability.EnsureDurable(resolution.Path);
-                return durability.Success
-                    ? new CopyResult(CopyStatus.SkippedDuplicate, resolution.Path)
-                    : new CopyResult(CopyStatus.Failed, resolution.Path, durability.Error ?? "Existing duplicate could not be committed durably.");
+                return VerifyExistingDuplicate(resolution.Path);
             }
 
             var transactionTemporaryPath = Path.Combine(destinationDirectory, $".partial-{Guid.NewGuid():N}");
@@ -160,10 +157,7 @@ public sealed class SafeCopyService
 
                 if (resolution.IsDuplicate)
                 {
-                    var durability = _durability.EnsureDurable(resolution.Path);
-                    return durability.Success
-                        ? new CopyResult(CopyStatus.SkippedDuplicate, resolution.Path)
-                        : new CopyResult(CopyStatus.Failed, resolution.Path, durability.Error ?? "Existing duplicate could not be committed durably.");
+                    return VerifyExistingDuplicate(resolution.Path);
                 }
 
                 finalPath = resolution.Path;
@@ -202,6 +196,17 @@ public sealed class SafeCopyService
                 }
             }
         }
+    }
+
+    private CopyResult VerifyExistingDuplicate(string path)
+    {
+        var durability = _durability.EnsureDurable(path);
+        return durability.Success
+            ? new CopyResult(CopyStatus.SkippedDuplicate, path)
+            : new CopyResult(
+                CopyStatus.Failed,
+                path,
+                durability.Error ?? "Existing duplicate could not be committed durably.");
     }
 
     private static async Task<(string Path, bool IsDuplicate)> ResolveDestinationAsync(

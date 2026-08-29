@@ -101,15 +101,17 @@ static async Task RunCandidateCacheScenario(
         .VerifyAsync(matchingSources, destinationRoot);
     stopwatch.Stop();
 
-    // Final reuse verification must read each successful destination candidate once
-    // as a prefilter and once again after durable synchronization. A post-durability
-    // proof may then be reused for identical sources within the same invocation.
+    // Final reuse verification reads each successful source before matching and again
+    // after destination durability proof. A successful destination candidate is also
+    // read once as a prefilter and once after durable synchronization. This four-read
+    // budget is intentional: the final source read prevents approving media that was
+    // modified while destination durability was being established.
     var maximumExpectedVerificationBytes =
-        (long)(matchingSources.Count + (destinationCandidateCount * 2)) * fileSize;
+        (long)((matchingSources.Count * 2) + (destinationCandidateCount * 2)) * fileSize;
     Console.WriteLine(
         $"fresh-verification: safe={verification.IsSafe}, verified={verification.Verified}/{verification.Total}, " +
         $"hashCalls={verificationHasher.HashCalls}, hashBytesRead={verificationHasher.BytesRead:N0}, " +
-        $"maxExpectedWithPostDurabilityRehash={maximumExpectedVerificationBytes:N0}, " +
+        $"maxExpectedWithFreshSourceRehash={maximumExpectedVerificationBytes:N0}, " +
         $"elapsedMs={stopwatch.Elapsed.TotalMilliseconds:F1}");
 
     if (!verification.IsSafe)
@@ -119,7 +121,7 @@ static async Task RunCandidateCacheScenario(
 
     if (verificationHasher.BytesRead > maximumExpectedVerificationBytes)
     {
-        throw new InvalidOperationException("A destination candidate exceeded the expected pre/post-durability hashing budget.");
+        throw new InvalidOperationException("Final verification exceeded the expected source/destination rehash budget.");
     }
 }
 

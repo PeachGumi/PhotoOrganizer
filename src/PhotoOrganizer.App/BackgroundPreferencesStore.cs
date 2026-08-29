@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace PhotoOrganizer.App;
 
 public sealed record BackgroundPreferences(bool StartInBackground)
@@ -9,49 +7,11 @@ public sealed record BackgroundPreferences(bool StartInBackground)
 
 public sealed class BackgroundPreferencesStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private readonly string _path;
+    private readonly string _path = JsonSettingsFile.GetPath("background-settings.json");
 
-    public BackgroundPreferencesStore()
-    {
-        var directory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PhotoOrganizer");
-        _path = Path.Combine(directory, "background-settings.json");
-    }
+    public BackgroundPreferences Load() =>
+        JsonSettingsFile.Load(_path, BackgroundPreferences.Default);
 
-    public BackgroundPreferences Load()
-    {
-        try
-        {
-            if (!File.Exists(_path)) return BackgroundPreferences.Default;
-            return JsonSerializer.Deserialize<BackgroundPreferences>(File.ReadAllText(_path))
-                ?? BackgroundPreferences.Default;
-        }
-        catch
-        {
-            return BackgroundPreferences.Default;
-        }
-    }
-
-    public bool Save(bool startInBackground, out string? error)
-    {
-        try
-        {
-            var directory = Path.GetDirectoryName(_path)!;
-            Directory.CreateDirectory(directory);
-            var temporary = _path + ".tmp-" + Guid.NewGuid().ToString("N");
-            File.WriteAllText(
-                temporary,
-                JsonSerializer.Serialize(new BackgroundPreferences(startInBackground), JsonOptions));
-            File.Move(temporary, _path, overwrite: true);
-            error = null;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            error = ex.Message;
-            return false;
-        }
-    }
+    public bool Save(bool startInBackground, out string? error) =>
+        JsonSettingsFile.Save(_path, new BackgroundPreferences(startInBackground), out error);
 }
