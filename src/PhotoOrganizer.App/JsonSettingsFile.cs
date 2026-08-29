@@ -16,7 +16,8 @@ internal static class JsonSettingsFile
         try
         {
             if (!File.Exists(path)) return fallback;
-            return JsonSerializer.Deserialize<T>(File.ReadAllText(path)) ?? fallback;
+            var loaded = JsonSerializer.Deserialize<T>(File.ReadAllText(path));
+            return loaded is null ? fallback : loaded;
         }
         catch
         {
