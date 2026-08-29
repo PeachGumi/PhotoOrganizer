@@ -1,16 +1,15 @@
 using System.Text.Json;
+using PhotoOrganizer.Core;
 
 namespace PhotoOrganizer.App;
 
 public sealed record AppPreferences(
     string DestinationPath,
-    string[] RawExtensions,
-    bool AutoStart)
+    string[] RawExtensions)
 {
     public static AppPreferences Default => new(
         Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
-        [".arw", ".cr2", ".cr3", ".nef", ".dng", ".raf", ".rw2", ".orf", ".pef"],
-        false);
+        MediaClassifier.DefaultRawExtensions.ToArray());
 }
 
 public sealed class AppPreferencesStore
