@@ -25,10 +25,12 @@ The only transition to `SafeToReuse` is the complete sequence below. Every error
 13. Re-scan the complete card.
 14. Require the rescan to be complete and non-empty, and require every supported path observed before import to still be present.
 15. Freshly verify every supported file currently visible on the card against the destination library by size and SHA-256.
-16. Re-check both storage identities after hashing.
-17. Only then transition to `SafeToReuse`.
+16. Re-check both storage identities after hashing and durability synchronization.
+17. Re-scan the complete card once more and require the supported-file set to be identical to the set that was just verified. This catches supported media added or removed while final SHA-256/durability verification was running.
+18. Re-check both storage identities after that final consistency scan.
+19. Only then transition to `SafeToReuse`.
 
-A new supported file that appears on the card after copying is intentionally included by the final rescan. If no byte-identical destination copy exists, reuse approval is blocked.
+A new supported file that appears on the card after copying is intentionally included by the post-copy rescan. If no byte-identical destination copy exists, reuse approval is blocked. A supported file that appears or disappears while final verification is running is caught by the final consistency scan and also blocks reuse approval.
 
 ## Filesystem boundaries
 
@@ -40,8 +42,8 @@ The application never deletes, moves, renames, overwrites, formats, or otherwise
 
 ## Duplicate-only runs
 
-If every supported source file already has an independent byte-identical copy in the destination library, no new event directory is created. A fresh post-import scan and fresh final verification are still required before reuse approval.
+If every supported source file already has an independent byte-identical copy in the destination library, no new event directory is created. Fresh post-import and post-verification scans plus fresh final verification are still required before reuse approval.
 
 ## Cancellation and application exit
 
-Cancellation, exceptions, or process termination before the final verification completes cannot produce or preserve a `SafeToReuse` state. The UI must present these cases as blocked/not verified.
+Cancellation, exceptions, or process termination before the final consistency scan and verification sequence completes cannot produce or preserve a `SafeToReuse` state. The UI must present these cases as blocked/not verified.

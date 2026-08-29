@@ -77,7 +77,9 @@ Reuse approval requires all of the following after copy processing:
 - an independent destination file with equal size and SHA-256 exists for every supported source file;
 - every destination file used as proof of backup can be durably synchronized at final verification time;
 - a source path itself, including the same bytes reached through a path alias, is never accepted as proof of an independent destination copy;
-- storage identity is checked again after hashing and durability synchronization before approval is displayed.
+- storage identity is checked again after hashing and durability synchronization;
+- a second complete whole-card scan after final byte verification sees exactly the same supported-file set that was verified, so media added or removed during verification cannot be silently omitted;
+- storage identity is checked again after that final consistency scan before approval is displayed.
 
 A SHA-256 match served from operating-system or device caches is not by itself sufficient proof that the camera card can be reformatted. Green approval requires durable destination commit in addition to byte verification.
 
@@ -91,7 +93,7 @@ Platform adapters are responsible for mounted-volume, physical-device, and proce
 
 ## Multi-card behavior
 
-A newly detected second card must never replace the currently selected/processing card. It may be queued and scanned only after the current operation is safely completed or reset.
+A newly detected second card must never replace the currently selected/processing card. It may be queued and scanned only after the current operation is safely completed or reset. Queue advancement may skip only an otherwise valid card that contains no supported media; a real scan/safety failure or cancellation must stop automatic advancement so the blocked state remains visible.
 
 ## Test policy
 

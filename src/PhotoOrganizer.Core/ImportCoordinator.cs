@@ -358,6 +358,39 @@ public sealed class ImportCoordinator
                     verification);
             }
 
+            // Verification can take long enough for another supported file to appear
+            // after the post-copy scan. A final whole-card enumeration closes that
+            // window without repeating the expensive SHA-256/durability pass.
+            var finalRescan = _scanner.Scan(session.CardRoot, cancellationToken);
+
+            if (!StorageMatches(session, destinationIdentity, destination))
+            {
+                return Blocked(
+                    "Source or destination storage changed during the final camera-card consistency scan.",
+                    summary,
+                    verification);
+            }
+
+            if (!finalRescan.IsComplete)
+            {
+                errors.AddRange(finalRescan.Errors);
+                return Blocked(
+                    "Final camera-card consistency scan was incomplete. Do not reuse the card.",
+                    summary,
+                    verification);
+            }
+
+            var finalFiles = finalRescan.Files
+                .Select(Path.GetFullPath)
+                .ToHashSet(PathComparer.Instance);
+            if (!rescanned.SetEquals(finalFiles))
+            {
+                return Blocked(
+                    "Supported media changed during final verification. Do not reuse the card.",
+                    summary,
+                    verification);
+            }
+
             progress?.Report(new ImportProgress(
                 ImportProgressPhase.Verifying,
                 verification.Verified,
