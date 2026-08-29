@@ -19,13 +19,15 @@ public sealed class MediaClassifier
         ".mov", ".mp4"
     };
 
+    public static IReadOnlyList<string> DefaultRawExtensions { get; } = Array.AsReadOnly(
+        new[] { ".arw", ".cr2", ".cr3", ".nef", ".dng", ".raf", ".rw2", ".orf", ".pef" });
+
     private readonly HashSet<string> _rawExtensions;
 
     public MediaClassifier(IEnumerable<string>? rawExtensions = null)
     {
-        rawExtensions ??= [".arw", ".cr2", ".cr3", ".nef", ".dng", ".raf", ".rw2", ".orf", ".pef"];
         _rawExtensions = new HashSet<string>(
-            rawExtensions.Select(NormalizeExtension),
+            (rawExtensions ?? DefaultRawExtensions).Select(NormalizeExtension),
             StringComparer.OrdinalIgnoreCase);
     }
 
@@ -41,6 +43,13 @@ public sealed class MediaClassifier
     }
 
     public bool IsSupported(string path) => Classify(path) is not null;
+
+    public static string[] ParseRawExtensions(string text) => text
+        .Split([',', ';', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(NormalizeExtension)
+        .Where(extension => extension.Length > 0)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
     public static string FolderName(MediaKind kind) => kind switch
     {
