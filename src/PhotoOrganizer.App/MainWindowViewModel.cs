@@ -24,7 +24,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
     private CancellationTokenSource? _importCancellation;
     private bool _isScanning;
     private bool _isProcessing;
-    private bool _changingAutoStart;
     private bool _disposed;
 
     private string _destinationPath;
@@ -52,7 +51,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         _destinationPath = preferences.DestinationPath;
         _rawExtensionsText = string.Join(", ", preferences.RawExtensions);
         _autoStart = _startupRegistration.IsEnabled();
-        _classifier = new MediaClassifier(ParseRawExtensions(_rawExtensionsText));
+        _classifier = new MediaClassifier(MediaClassifier.ParseRawExtensions(_rawExtensionsText));
         _coordinator = CreateCoordinator();
 
         _storageSessions.VolumeMounted += OnVolumeMounted;
@@ -68,7 +67,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         set
         {
             if (!SetField(ref _destinationPath, value)) return;
-            InvalidateSafety("保存先が変更されました。次の取り込み後に再検証が必要です。");
+            SetNotVerified("保存先が変更されました。次の取り込み後に再検証が必要です。");
             SavePreferences();
             RaiseCommandState();
         }
@@ -100,7 +99,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             {
                 RebuildCoordinator();
                 ClearScanSession();
-                InvalidateSafety("RAW拡張子設定が変更されました。SDカードを再スキャンしてください。");
+                SetNotVerified("RAW拡張子設定が変更されました。SDカードを再スキャンしてください。");
             }
             SavePreferences();
             RaiseCommandState();
@@ -148,20 +147,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         get => _autoStart;
         set
         {
-            if (_changingAutoStart || value == _autoStart) return;
+            if (value == _autoStart) return;
 
             if (_startupRegistration.SetEnabled(value, out var error))
             {
                 SetField(ref _autoStart, value);
                 AppendLog(value ? "ログイン時自動起動を有効にしました。" : "ログイン時自動起動を無効にしました。");
-                SavePreferences();
                 return;
             }
 
             AppendLog($"ログイン時自動起動の設定に失敗しました: {error}");
-            _changingAutoStart = true;
             SetField(ref _autoStart, _startupRegistration.IsEnabled());
-            _changingAutoStart = false;
         }
     }
 
@@ -188,12 +184,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             // Avalonia dispatcher. ScanCardAsync performs the same isolation for the
             // actual card scan below.
             var candidates = await Task.Run(() => _cardRoots.GetCandidateRoots()).ConfigureAwait(true);
-            if (_disposed || candidates.Count == 0) return;
 
-            await ScanCardAsync(candidates[0], autoDetected: true).ConfigureAwait(true);
-            if (_disposed) return;
+            foreach (var candidate in candidates)
+            {
+                if (_disposed || IsBusy || _scanSession is not null) return;
 
-            foreach (var candidate in candidates.Skip(1)) QueueCard(candidate);
+                var result = await ScanCardAsync(candidate, autoDetected: true).ConfigureAwait(true);
+                if (_disposed || result is null || result.IsReady) return;
+
+                // Only an otherwise valid card with no supported media is benign.
+                // Every real scan/safety failure remains visible and fail-closed.
+                if (!result.IsNoSupportedMedia) return;
+            }
         }
         catch (Exception exception)
         {
@@ -201,13 +203,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    public async Task ScanCardAsync(string path, bool autoDetected = false)
+    public async Task<ScanSessionResult?> ScanCardAsync(string path, bool autoDetected = false)
     {
-        if (_disposed || string.IsNullOrWhiteSpace(path)) return;
+        if (_disposed || string.IsNullOrWhiteSpace(path)) return null;
         if (IsBusy)
         {
             QueueCard(path);
-            return;
+            return null;
         }
 
         var scanCancellation = new CancellationTokenSource();
@@ -215,7 +217,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         _isScanning = true;
         RaiseCommandState();
         ClearScanSession();
-        InvalidateSafety("SDカードをスキャン中です。再利用しないでください。");
+        SetNotVerified("SDカードをスキャン中です。再利用しないでください。");
         ProgressLabel = "SDカードをスキャン中...";
         AppendLog($"スキャン開始: {path}");
 
@@ -225,22 +227,22 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             var result = await Task.Run(
                 () => _coordinator.ScanCard(path, scanCancellation.Token),
                 scanCancellation.Token).ConfigureAwait(true);
-            if (_disposed) return;
+            if (_disposed) return null;
 
             if (!result.IsReady)
             {
-                if (autoDetected && result.Message.Contains("No supported media", StringComparison.OrdinalIgnoreCase))
+                if (autoDetected && result.IsNoSupportedMedia)
                 {
                     AppendLog($"自動選択スキップ（対象メディアなし）: {path}");
                     ProgressLabel = "待機中";
-                    return;
+                    return result;
                 }
 
                 SetBlocked(result.Message);
                 ProgressLabel = "スキャン失敗";
                 AppendLog($"スキャン失敗: {result.Message}");
                 foreach (var error in result.Errors.Take(5)) AppendLog($"  {error}");
-                return;
+                return result;
             }
 
             _scanSession = result.Session;
@@ -251,28 +253,31 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             ProgressLabel = "取り込み準備完了";
             AppendLog($"スキャン完了: {result.Session.Files.Count} 件 / {CountLabel}");
             RequestShowWindow?.Invoke();
+            return result;
         }
         catch (OperationCanceledException)
         {
-            if (_disposed) return;
+            if (_disposed) return null;
 
             ClearScanSession();
             SetNotVerified("SDカードのスキャンをキャンセルしました。再スキャンと最終検証が完了するまで再利用しないでください。");
             ProgressLabel = "スキャンキャンセル";
             AppendLog("SDカードのスキャンをキャンセルしました。安全確認は未検証のままです。");
+            return null;
         }
         catch (Exception exception)
         {
             if (_disposed)
             {
                 Trace.WriteLine($"Photo Organizer card scan failed after disposal: {exception}");
-                return;
+                return null;
             }
 
             ClearScanSession();
             SetBlocked("SDカードのスキャン中に予期しないエラーが発生しました。SDカードを再利用しないでください。");
             ProgressLabel = "スキャン失敗";
             AppendLog($"スキャン失敗（予期しないエラー）: {exception.Message}");
+            return null;
         }
         finally
         {
@@ -458,15 +463,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     private void RebuildCoordinator()
     {
-        _classifier = new MediaClassifier(ParseRawExtensions(RawExtensionsText));
+        _classifier = new MediaClassifier(MediaClassifier.ParseRawExtensions(RawExtensionsText));
         _coordinator = CreateCoordinator();
     }
-
-    private static string[] ParseRawExtensions(string text) => text
-        .Split([',', ';', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .Select(extension => extension.StartsWith('.') ? extension.ToLowerInvariant() : "." + extension.ToLowerInvariant())
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .ToArray();
 
     private void UpdateCounts(IEnumerable<string> files)
     {
@@ -498,8 +497,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
         SafetyDetail = detail;
         SafetyBrush = Brushes.DarkOrange;
     }
-
-    private void InvalidateSafety(string detail) => SetNotVerified(detail);
 
     private void ClearScanSession()
     {
@@ -687,7 +684,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
     private void SavePreferences()
     {
-        var preferences = new AppPreferences(DestinationPath, ParseRawExtensions(RawExtensionsText), AutoStart);
+        var preferences = new AppPreferences(
+            DestinationPath,
+            MediaClassifier.ParseRawExtensions(RawExtensionsText));
         if (!_preferencesStore.Save(preferences, out var error) && !string.IsNullOrWhiteSpace(error))
         {
             AppendLog($"設定保存失敗: {error}");
