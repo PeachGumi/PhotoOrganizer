@@ -240,8 +240,14 @@ public sealed partial class MainWindowViewModel
                 var exists = await Task.Run(() => Directory.Exists(next)).ConfigureAwait(true);
                 if (_disposed) return;
                 if (!exists) continue;
-                await ScanCardAsync(next, autoDetected: true).ConfigureAwait(true);
+
+                var result = await ScanCardAsync(next, autoDetected: true).ConfigureAwait(true);
                 if (_scanSession is not null) return;
+
+                // Only a benign empty camera card may be skipped automatically.
+                // A real scan/safety failure or cancellation must remain visible and
+                // stop queue advancement instead of being overwritten by another scan.
+                if (result is null || !result.IsNoSupportedMedia) return;
             }
         }
         finally
