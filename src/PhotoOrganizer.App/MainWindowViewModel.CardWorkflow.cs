@@ -6,6 +6,8 @@ namespace PhotoOrganizer.App;
 
 public sealed partial class MainWindowViewModel
 {
+    private bool _drainingPendingCards;
+
     public async Task InitializeAsync()
     {
         if (_disposed) return;
@@ -45,6 +47,7 @@ public sealed partial class MainWindowViewModel
         }
 
         var scanCancellation = new CancellationTokenSource();
+        var continuePendingAfterScan = false;
         _scanCancellation = scanCancellation;
         _isScanning = true;
         RaiseCommandState();
@@ -65,6 +68,7 @@ public sealed partial class MainWindowViewModel
             {
                 if (autoDetected && result.IsNoSupportedMedia)
                 {
+                    continuePendingAfterScan = true;
                     AppendLog($"自動選択スキップ（対象メディアなし）: {path}");
                     ProgressLabel = "待機中";
                     return result;
@@ -120,7 +124,14 @@ public sealed partial class MainWindowViewModel
             }
 
             _isScanning = false;
-            if (!_disposed) RaiseCommandState();
+            if (!_disposed)
+            {
+                RaiseCommandState();
+                if (continuePendingAfterScan && !_drainingPendingCards)
+                {
+                    await ScanNextPendingIfPossibleAsync().ConfigureAwait(true);
+                }
+            }
         }
     }
 
@@ -214,19 +225,28 @@ public sealed partial class MainWindowViewModel
 
     private async Task ScanNextPendingIfPossibleAsync()
     {
-        if (_disposed || IsBusy || _scanSession is not null) return;
-        while (_pendingCards.Count > 0)
-        {
-            if (_disposed || IsBusy || _scanSession is not null) return;
+        if (_drainingPendingCards || _disposed || IsBusy || _scanSession is not null) return;
 
-            var next = _pendingCards[0];
-            _pendingCards.RemoveAt(0);
-            RaisePendingState();
-            var exists = await Task.Run(() => Directory.Exists(next)).ConfigureAwait(true);
-            if (_disposed) return;
-            if (!exists) continue;
-            await ScanCardAsync(next, autoDetected: true).ConfigureAwait(true);
-            if (_scanSession is not null) return;
+        _drainingPendingCards = true;
+        try
+        {
+            while (_pendingCards.Count > 0)
+            {
+                if (_disposed || IsBusy || _scanSession is not null) return;
+
+                var next = _pendingCards[0];
+                _pendingCards.RemoveAt(0);
+                RaisePendingState();
+                var exists = await Task.Run(() => Directory.Exists(next)).ConfigureAwait(true);
+                if (_disposed) return;
+                if (!exists) continue;
+                await ScanCardAsync(next, autoDetected: true).ConfigureAwait(true);
+                if (_scanSession is not null) return;
+            }
+        }
+        finally
+        {
+            _drainingPendingCards = false;
         }
     }
 
