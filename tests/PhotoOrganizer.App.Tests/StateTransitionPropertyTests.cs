@@ -151,11 +151,14 @@ public sealed class StateTransitionPropertyTests
         ];
     }
 
-    private static Dictionary<string, byte[]> SnapshotPermanentSourceMedia(IEnumerable<CardCase> cards) =>
-        cards
+    private static Dictionary<string, byte[]> SnapshotPermanentSourceMedia(IEnumerable<CardCase> cards)
+    {
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        return cards
             .Where(card => card.Kind is not CardKind.Gone)
             .SelectMany(card => Directory.EnumerateFiles(card.Path, "*", SearchOption.AllDirectories))
-            .ToDictionary(Path.GetFullPath, File.ReadAllBytes, PathComparer.Instance);
+            .ToDictionary(Path.GetFullPath, File.ReadAllBytes, comparer);
+    }
 
     private static MountedVolumeInfo ToVolume(CardCase card) => new(
         card.Path,
