@@ -151,13 +151,17 @@ public sealed class SafetyInvariantContractTests
         (relative == "src/PhotoOrganizer.Core/SafeCopyService.cs"
          && line.Contains("File.Delete(temporaryPathForCleanup)", StringComparison.Ordinal))
         || (relative == "src/PhotoOrganizer.App/JsonSettingsFile.cs"
-            && line.Contains("File.Delete(temporary)", StringComparison.Ordinal));
+            && line.Contains("File.Delete(temporary)", StringComparison.Ordinal))
+        || (relative == "src/PhotoOrganizer.App/StartupRegistrationService.cs"
+            && line.Contains("File.Delete(plistPath)", StringComparison.Ordinal));
 
     private static bool IsAllowedMove(string relative, string line) =>
         (relative == "src/PhotoOrganizer.Core/FileDurability.cs"
          && line.Contains("File.Move(temporaryPath, finalPath, overwrite: false)", StringComparison.Ordinal))
         || (relative == "src/PhotoOrganizer.App/JsonSettingsFile.cs"
-            && line.Contains("File.Move(temporary, path, overwrite: true)", StringComparison.Ordinal));
+            && line.Contains("File.Move(temporary, path, overwrite: true)", StringComparison.Ordinal))
+        || (relative == "src/PhotoOrganizer.App/StartupRegistrationService.cs"
+            && line.Contains("File.Move(temporary, plistPath, overwrite: true)", StringComparison.Ordinal));
 
     private static string FindRepositoryRoot()
     {
