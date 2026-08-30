@@ -2,8 +2,6 @@ using PhotoOrganizer.Core;
 
 namespace PhotoOrganizer.FaultInjection.Worker;
 
-public static class WorkerAssemblyMarker;
-
 public static class Program
 {
     public static async Task<int> Main(string[] args)
