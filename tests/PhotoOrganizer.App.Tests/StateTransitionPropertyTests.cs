@@ -88,20 +88,24 @@ public sealed class StateTransitionPropertyTests
                 viewModel.SafetyHeadline,
                 $"seed={seed}: scan/queue activity alone must never produce reuse approval.");
 
-            if (cancelled)
+            // Missing physical-device identity is an immediate fail-closed condition.
+            // It is intentionally allowed to win the race over a cancellation request
+            // because ScanCard validates storage identity before entering the media scan.
+            if (active.Kind == CardKind.BrokenIdentity)
             {
-                Assert.IsNull(firstResult, $"seed={seed}: cancelled scan should not return a successful/blocked scan result.");
+                Assert.IsNotNull(firstResult, $"seed={seed}: broken identity should return a blocked result.");
+                Assert.AreEqual(ScanFailureReason.MissingPhysicalDeviceIdentity, firstResult.FailureReason, $"seed={seed}");
+                Assert.AreEqual("スキャン失敗", viewModel.ProgressLabel, $"seed={seed}: safety failure should remain visible.");
+            }
+            else if (cancelled)
+            {
+                Assert.IsNull(firstResult, $"seed={seed}: cancelled media scan should not return a successful/blocked scan result.");
                 Assert.AreEqual("スキャンキャンセル", viewModel.ProgressLabel, $"seed={seed}: cancellation must remain visibly unverified.");
             }
             else if (active.Kind == CardKind.Valid)
             {
                 Assert.IsNotNull(firstResult, $"seed={seed}: valid active card should produce a scan result.");
                 Assert.IsTrue(firstResult.IsReady, $"seed={seed}: valid active card should be ready.");
-            }
-            else if (active.Kind == CardKind.BrokenIdentity)
-            {
-                Assert.IsNotNull(firstResult, $"seed={seed}: broken identity should return a blocked result.");
-                Assert.AreEqual(ScanFailureReason.MissingPhysicalDeviceIdentity, firstResult.FailureReason, $"seed={seed}");
             }
             else
             {
@@ -186,6 +190,13 @@ public sealed class StateTransitionPropertyTests
     {
         var remaining = queued.ToList();
 
+        // Immediate storage-identity failure takes precedence over cancellation.
+        // Both leave selection empty and preserve the pending queue.
+        if (active.Kind == CardKind.BrokenIdentity)
+        {
+            return (string.Empty, remaining.Count);
+        }
+
         if (cancelled)
         {
             return (string.Empty, remaining.Count);
@@ -195,11 +206,6 @@ public sealed class StateTransitionPropertyTests
         {
             remaining.RemoveAll(path => string.Equals(path, PathSafety.Normalize(active.Path), comparison));
             return (PathSafety.Normalize(active.Path), remaining.Count);
-        }
-
-        if (active.Kind == CardKind.BrokenIdentity)
-        {
-            return (string.Empty, remaining.Count);
         }
 
         while (remaining.Count > 0)
