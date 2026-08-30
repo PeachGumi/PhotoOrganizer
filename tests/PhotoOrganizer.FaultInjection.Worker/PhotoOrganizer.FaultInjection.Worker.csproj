@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>PhotoOrganizer.FaultInjection.Worker</AssemblyName>
+    <RootNamespace>PhotoOrganizer.FaultInjection.Worker</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/PhotoOrganizer.Core/PhotoOrganizer.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -12,5 +12,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/PhotoOrganizer.Core/PhotoOrganizer.Core.csproj" />
+    <ProjectReference Include="../PhotoOrganizer.FaultInjection.Worker/PhotoOrganizer.FaultInjection.Worker.csproj" />
   </ItemGroup>
 </Project>
