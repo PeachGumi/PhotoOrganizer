@@ -61,6 +61,7 @@ public static class Program
             if (_mode == CheckpointMode.BeforeFinalize)
             {
                 StopAtCheckpoint("before-finalize");
+                return new FinalizeFileResult(FinalizeFileStatus.Failed, false, "Checkpoint unexpectedly resumed.");
             }
 
             if (_mode == CheckpointMode.AfterFinalizeBeforeDurable)
@@ -70,7 +71,7 @@ public static class Program
                     File.Move(temporaryPath, finalPath, overwrite: false);
                     File.SetLastWriteTimeUtc(finalPath, lastWriteUtc);
                     StopAtCheckpoint("after-finalize-before-durable");
-                    throw new UnreachableException();
+                    return new FinalizeFileResult(FinalizeFileStatus.Failed, true, "Checkpoint unexpectedly resumed.");
                 }
                 catch (IOException) when (File.Exists(finalPath) || Directory.Exists(finalPath))
                 {
@@ -97,6 +98,7 @@ public static class Program
             if (_mode == CheckpointMode.DuplicateDurability)
             {
                 StopAtCheckpoint("duplicate-durability");
+                return new DurabilityResult(false, "Checkpoint unexpectedly resumed.");
             }
 
             return _platform.EnsureDurable(filePath);
