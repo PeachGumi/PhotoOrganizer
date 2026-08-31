@@ -6,32 +6,32 @@ namespace PhotoOrganizer.Core.Tests;
 public sealed class HiddenMediaSafetyTests
 {
     [TestMethod]
-    public void HiddenDirectorySupportedMedia_IsIncludedInCompleteScan()
+    public void DotPrefixedDirectory_IsExcludedFromCompleteScan()
     {
         using var temp = new TempDirectory();
-        var hidden = Directory.CreateDirectory(Path.Combine(temp.Path, ".camera-hidden"));
-        var photo = Path.Combine(hidden.FullName, "recoverable.jpg");
+        var hidden = Directory.CreateDirectory(Path.Combine(temp.Path, ".Spotlight-V100"));
+        File.WriteAllText(Path.Combine(hidden.FullName, "metadata.jpg"), "metadata");
+        var photo = Path.Combine(temp.Path, "visible.jpg");
         File.WriteAllText(photo, "camera-bytes");
 
         var result = new MediaScanner(new MediaClassifier()).Scan(temp.Path);
 
         Assert.IsTrue(result.IsComplete, string.Join(Environment.NewLine, result.Errors));
-        CollectionAssert.Contains(result.Files.ToList(), photo);
+        CollectionAssert.AreEqual(new[] { photo }, result.Files.ToArray());
     }
 
     [TestMethod]
-    public void HiddenDirectoryZeroByteSupportedMedia_BlocksCompleteScan()
+    public void DotPrefixedSupportedFile_IsExcludedFromCompleteScan()
     {
         using var temp = new TempDirectory();
-        var hidden = Directory.CreateDirectory(Path.Combine(temp.Path, ".camera-hidden"));
-        var photo = Path.Combine(hidden.FullName, "broken.nef");
-        File.WriteAllBytes(photo, []);
+        File.WriteAllText(Path.Combine(temp.Path, "._DSC_0001.JPG"), "apple-double");
+        var photo = Path.Combine(temp.Path, "DSC_0001.JPG");
+        File.WriteAllText(photo, "camera-bytes");
 
         var result = new MediaScanner(new MediaClassifier()).Scan(temp.Path);
 
-        Assert.IsFalse(result.IsComplete);
-        CollectionAssert.Contains(result.Files.ToList(), photo);
-        Assert.IsTrue(result.Errors.Any(error => error.Contains("zero bytes", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(result.IsComplete, string.Join(Environment.NewLine, result.Errors));
+        CollectionAssert.AreEqual(new[] { photo }, result.Files.ToArray());
     }
 
     [TestMethod]
