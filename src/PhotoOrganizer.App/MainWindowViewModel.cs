@@ -31,7 +31,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     private string _selectedSdPath = string.Empty;
     private string _selectedSdContextPath = string.Empty;
     private string _rawExtensionsText;
-    private string _countLabel = "RAW:0 / JPG:0 / MP4:0";
+    private string _countLabel = "RAW:0 / JPG:0 / 動画:0";
     private string _progressLabel = "待機中";
     private string _logText = string.Empty;
     private string _safetyHeadline = "未検証 — 最終確認が完了するまでSDカードを再利用しないでください";
@@ -312,7 +312,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
                 case MediaKind.Video: video++; break;
             }
         }
-        CountLabel = $"RAW:{raw} / JPG:{jpg} / MP4:{video}";
+        CountLabel = $"RAW:{raw} / JPG:{jpg} / 動画:{video}";
     }
 
     private void SetBlocked(string message)
@@ -336,7 +336,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         _scanSession = null;
         SelectedSdPath = string.Empty;
         SelectedSdContextPath = string.Empty;
-        CountLabel = "RAW:0 / JPG:0 / MP4:0";
+        CountLabel = "RAW:0 / JPG:0 / 動画:0";
         ShowSafetyPanel = false;
         IsSafeToReuseCurrentCard = false;
         RaiseCommandState();
