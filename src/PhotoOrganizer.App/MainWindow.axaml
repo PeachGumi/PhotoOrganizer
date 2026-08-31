@@ -5,9 +5,9 @@
         x:DataType="vm:MainWindowViewModel"
         Title="Photo Organizer"
         Icon="/Assets/photo-organizer-icon.ico"
-        Width="920"
+        Width="860"
         Height="780"
-        MinWidth="760"
+        MinWidth="620"
         MinHeight="620">
   <ScrollViewer VerticalScrollBarVisibility="Auto">
     <StackPanel Margin="24" Spacing="16">
@@ -17,7 +17,8 @@
                    Opacity="0.7" TextWrapping="Wrap" />
       </StackPanel>
 
-      <Border Padding="16" CornerRadius="10" BorderThickness="1">
+      <Border Padding="16" CornerRadius="10" BorderThickness="1"
+              AutomationProperties.Name="次に行う操作">
         <StackPanel Spacing="5">
           <TextBlock Text="次に行うこと" FontSize="12" Opacity="0.6" />
           <TextBlock Text="{Binding WorkflowHeadline}"
@@ -28,88 +29,139 @@
       </Border>
 
       <Border Padding="16" CornerRadius="10" BorderThickness="1">
-        <StackPanel Spacing="14">
+        <StackPanel Spacing="16">
           <TextBlock Text="取り込み" FontSize="18" FontWeight="SemiBold" />
 
-          <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="110,*,Auto" RowSpacing="12" ColumnSpacing="10">
-            <TextBlock Grid.Row="0" Grid.Column="0"
-                       Text="SDカード" VerticalAlignment="Center" />
-            <Border Grid.Row="0" Grid.Column="1"
-                    Padding="10,7" CornerRadius="6" BorderThickness="1">
-              <TextBlock Text="{Binding SelectedSdDisplay}"
-                         TextWrapping="NoWrap"
-                         TextTrimming="CharacterEllipsis"
-                         ToolTip.Tip="{Binding SelectedSdDisplay}" />
-            </Border>
-            <Button Grid.Row="0" Grid.Column="2"
-                    Content="SDカードを選択…"
-                    Click="SelectSd_Click"
-                    IsEnabled="{Binding !IsBusy}" />
-
-            <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
-              <StackPanel IsVisible="{Binding ShowMediaSummary}" Spacing="3">
-                <TextBlock Text="{Binding CountLabel}" FontWeight="SemiBold" />
-                <TextBlock Text="対象形式: JPG/JPEG・設定済みRAW・MOV/MP4"
-                           FontSize="12" Opacity="0.55" TextWrapping="Wrap" />
-              </StackPanel>
-              <TextBlock IsVisible="{Binding HasPendingCards}"
-                         Text="{Binding PendingSdText}"
-                         Opacity="0.65" TextWrapping="Wrap" />
+          <StackPanel Spacing="7">
+            <TextBlock Text="SDカード" FontWeight="SemiBold" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+              <Border Grid.Column="0" Padding="10,7" CornerRadius="6" BorderThickness="1">
+                <TextBlock Text="{Binding SelectedSdDisplay}"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding SelectedSdDisplay}"
+                           AutomationProperties.Name="選択中のSDカード" />
+              </Border>
+              <Button Grid.Column="1"
+                      Content="SDカードを選択…"
+                      Click="SelectSd_Click"
+                      IsEnabled="{Binding !IsBusy}"
+                      AutomationProperties.Name="SDカードを選択" />
+            </Grid>
+            <StackPanel IsVisible="{Binding ShowMediaSummary}" Spacing="3">
+              <TextBlock Text="{Binding CountLabel}" FontWeight="SemiBold" />
+              <TextBlock Text="対象形式: JPG/JPEG・設定済みRAW・MOV/MP4"
+                         FontSize="12" Opacity="0.55" TextWrapping="Wrap" />
             </StackPanel>
+            <TextBlock IsVisible="{Binding HasPendingCards}"
+                       Text="{Binding PendingSdText}"
+                       Opacity="0.65" TextWrapping="Wrap" />
+          </StackPanel>
 
-            <TextBlock Grid.Row="2" Grid.Column="0"
-                       Text="保存先" VerticalAlignment="Center" />
-            <TextBox Grid.Row="2" Grid.Column="1"
-                     Text="{Binding DestinationPath, Mode=TwoWay}"
-                     IsEnabled="{Binding !IsBusy}"
-                     PlaceholderText="写真ライブラリの保存先" />
-            <Button Grid.Row="2" Grid.Column="2"
-                    Content="選択…"
-                    Click="SelectDestination_Click"
-                    IsEnabled="{Binding !IsBusy}" />
+          <StackPanel Spacing="7">
+            <TextBlock Text="保存先" FontWeight="SemiBold" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+              <TextBox Grid.Column="0"
+                       Text="{Binding DestinationPath, Mode=TwoWay}"
+                       IsEnabled="{Binding !IsBusy}"
+                       PlaceholderText="写真ライブラリの保存先"
+                       LostFocus="Destination_LostFocus"
+                       AutomationProperties.Name="写真の保存先" />
+              <Button Grid.Column="1"
+                      Content="選択…"
+                      Click="SelectDestination_Click"
+                      IsEnabled="{Binding !IsBusy}"
+                      AutomationProperties.Name="写真の保存先を選択" />
+            </Grid>
+          </StackPanel>
 
-            <TextBlock Grid.Row="3" Grid.Column="0"
-                       Text="イベント名" VerticalAlignment="Center" />
-            <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
-                     Text="{Binding EventName, Mode=TwoWay}"
+          <StackPanel Spacing="7">
+            <TextBlock Text="イベント名" FontWeight="SemiBold" />
+            <TextBox Text="{Binding EventName, Mode=TwoWay}"
                      IsEnabled="{Binding !IsBusy}"
-                     PlaceholderText="例: 旅行、運動会、撮影会" />
-          </Grid>
+                     PlaceholderText="例: 旅行、運動会、撮影会"
+                     AutomationProperties.Name="イベント名" />
+          </StackPanel>
+
+          <Border IsVisible="{Binding HasInputValidationError}"
+                  Padding="12" CornerRadius="8" BorderThickness="1"
+                  AutomationProperties.Name="入力内容の確認">
+            <StackPanel Spacing="4">
+              <TextBlock Text="入力内容を確認してください" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding InputValidationMessage}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
 
           <Border Padding="12" CornerRadius="8" BorderThickness="1">
             <StackPanel Spacing="4">
               <TextBlock Text="保存先プレビュー" FontSize="12" Opacity="0.6" />
               <TextBlock x:Name="DestinationPreviewText"
                          TextWrapping="Wrap"
-                         FontFamily="monospace" />
-              <TextBlock Text="日付は今回の新規対象メディアの最古撮影日から自動で決まります。"
+                         FontFamily="monospace"
+                         AutomationProperties.Name="保存先プレビュー" />
+              <TextBlock Text="日付は今回の新規対象メディアの最古撮影日から自動で決まります。使用できないイベント名の文字は「_」に置き換えて表示します。"
                          FontSize="12" Opacity="0.55" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
 
-          <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
-            <Button Grid.Column="0"
-                    Classes="accent"
-                    Content="取り込みを開始"
-                    Click="Import_Click"
-                    IsEnabled="{Binding CanImport}"
-                    MinWidth="150" />
-            <Button Grid.Column="1"
-                    Content="キャンセル"
-                    Click="Cancel_Click"
-                    IsEnabled="{Binding CanCancel}" />
-            <TextBlock Grid.Column="2"
+          <StackPanel Spacing="9">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button Classes="accent"
+                      Content="取り込みを開始"
+                      Click="Import_Click"
+                      IsEnabled="{Binding CanImport}"
+                      MinWidth="150"
+                      AutomationProperties.Name="取り込みを開始" />
+              <Button Content="キャンセル"
+                      Click="Cancel_Click"
+                      IsEnabled="{Binding CanCancel}"
+                      AutomationProperties.Name="取り込みをキャンセル" />
+            </StackPanel>
+
+            <StackPanel IsVisible="{Binding IsBusy}" Spacing="6">
+              <ProgressBar Minimum="0"
+                           Maximum="{Binding ProgressMaximum}"
+                           Value="{Binding ProgressValue}"
+                           IsIndeterminate="{Binding ProgressIsIndeterminate}"
+                           Height="7"
+                           AutomationProperties.Name="取り込み進捗" />
+              <TextBlock Text="{Binding ProgressLabel}"
+                         TextWrapping="Wrap"
+                         Opacity="0.75" />
+            </StackPanel>
+            <TextBlock IsVisible="{Binding !IsBusy}"
                        Text="{Binding ProgressLabel}"
-                       VerticalAlignment="Center"
                        TextWrapping="Wrap"
-                       Opacity="0.7" />
-          </Grid>
+                       Opacity="0.65" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <Border IsVisible="{Binding HasCompletedImport}"
+              Padding="16" CornerRadius="10" BorderThickness="1"
+              AutomationProperties.Name="直前の取り込み結果">
+        <StackPanel Spacing="8">
+          <TextBlock Text="取り込み完了" FontSize="18" FontWeight="SemiBold" />
+          <TextBlock Text="{Binding CompletionSummary}" TextWrapping="Wrap" />
+          <Border Padding="10,7" CornerRadius="6" BorderThickness="1">
+            <TextBlock Text="{Binding LastImportBasePath}"
+                       TextWrapping="NoWrap"
+                       TextTrimming="CharacterEllipsis"
+                       ToolTip.Tip="{Binding LastImportBasePath}"
+                       AutomationProperties.Name="直前の取り込み先" />
+          </Border>
+          <Button Content="保存先を開く"
+                  Click="OpenDestination_Click"
+                  IsEnabled="{Binding !IsBusy}"
+                  HorizontalAlignment="Left"
+                  AutomationProperties.Name="直前の取り込み先を開く" />
         </StackPanel>
       </Border>
 
       <Border IsVisible="{Binding ShowSafetyPanel}"
               Padding="16" CornerRadius="10" BorderThickness="2"
-              BorderBrush="{Binding SafetyBrush}">
+              BorderBrush="{Binding SafetyBrush}"
+              AutomationProperties.Name="SDカード再利用の安全状態">
         <StackPanel Spacing="6">
           <TextBlock Text="SDカードの再利用" FontSize="13" Opacity="0.65" />
           <TextBlock Text="{Binding SafetyHeadline}"
@@ -125,16 +177,15 @@
       <Expander Header="詳細設定">
         <Border Margin="0,8,0,0" Padding="16" CornerRadius="10" BorderThickness="1">
           <StackPanel Spacing="16">
-            <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto" RowSpacing="4">
-              <TextBlock Grid.Row="0" Grid.Column="0" Text="RAW拡張子" VerticalAlignment="Center" />
-              <TextBox Grid.Row="0" Grid.Column="1"
-                       Text="{Binding RawExtensionsText, Mode=TwoWay}"
+            <StackPanel Spacing="6">
+              <TextBlock Text="RAW拡張子" />
+              <TextBox Text="{Binding RawExtensionsText, Mode=TwoWay}"
                        IsEnabled="{Binding !IsBusy}"
-                       PlaceholderText=".arw, .cr3, .nef, ..." />
-              <TextBlock Grid.Row="1" Grid.Column="1"
-                         Text="JPG/JPEGとMOV/MP4は常に対象です。ここには追加で取り込みたいRAW拡張子を指定します。"
+                       PlaceholderText=".arw, .cr3, .nef, ..."
+                       AutomationProperties.Name="追加するRAW拡張子" />
+              <TextBlock Text="JPG/JPEGとMOV/MP4は常に対象です。ここには追加で取り込みたいRAW拡張子を指定します。"
                          FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
-            </Grid>
+            </StackPanel>
 
             <StackPanel Spacing="4">
               <CheckBox Content="ログイン時にPhoto Organizerを自動起動"
@@ -166,7 +217,8 @@
                  TextWrapping="NoWrap"
                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                 FontFamily="monospace" />
+                 FontFamily="monospace"
+                 AutomationProperties.Name="詳細ログ" />
       </Expander>
     </StackPanel>
   </ScrollViewer>
