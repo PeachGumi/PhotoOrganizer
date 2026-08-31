@@ -195,7 +195,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     public bool AutoStartSupported => _startupRegistration.IsSupported;
     public bool IsBusy => _isScanning || _isProcessing;
     public bool IsProcessing => _isProcessing;
-    public bool HasSelectedSd => _scanSession is not null && !string.IsNullOrWhiteSpace(SelectedSdPath);
+    public bool HasSelectedSd => !string.IsNullOrWhiteSpace(SelectedSdPath);
     public string SelectedSdDisplay => HasSelectedSd ? SelectedSdPath : "未選択";
     public bool CanImport => !IsBusy
         && !IsSafeToReuseCurrentCard
@@ -215,6 +215,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
             if (_isScanning) return "SDカードを確認しています";
             if (_isProcessing) return "取り込みと安全確認を実行しています";
             if (IsSafeToReuseCurrentCard && _scanSession is not null) return "取り込みと検証が完了しました";
+            if (_scanSession is null && HasSelectedSd) return "SDカードを再選択してください";
             if (_scanSession is null) return "SDカードを選択してください";
             if (string.IsNullOrWhiteSpace(DestinationPath)) return "保存先を選択してください";
             if (string.IsNullOrWhiteSpace(EventName)) return "イベント名を入力してください";
@@ -238,7 +239,12 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
 
             if (IsSafeToReuseCurrentCard && _scanSession is not null)
             {
-                return "SDカードを再利用できます。カードを取り外すと、次のSDカードを自動検出できる状態に戻ります。";
+                return "SDカードを再利用できます。カードを取り外すか別のカードを選択すると、次の取り込みへ進めます。";
+            }
+
+            if (_scanSession is null && HasSelectedSd)
+            {
+                return "選択したカードの確認が完了していません。下の状態を確認し、カードを挿し直すか「SDカードを選択…」から選択し直してください。";
             }
 
             if (_scanSession is null)
