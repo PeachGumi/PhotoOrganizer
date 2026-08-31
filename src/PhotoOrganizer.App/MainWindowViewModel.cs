@@ -29,6 +29,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     private string _destinationPath;
     private string _eventName = string.Empty;
     private string _selectedSdPath = string.Empty;
+    private string _selectedSdContextPath = string.Empty;
     private string _rawExtensionsText;
     private string _countLabel = "RAW:0 / JPG:0 / MP4:0";
     private string _progressLabel = "待機中";
@@ -90,9 +91,16 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     public string SelectedSdPath
     {
         get => _selectedSdPath;
-        private set
+        private set => SetField(ref _selectedSdPath, value);
+    }
+
+    private string SelectedSdContextPath
+    {
+        get => _selectedSdContextPath;
+        set
         {
-            if (!SetField(ref _selectedSdPath, value)) return;
+            if (string.Equals(_selectedSdContextPath, value, StringComparison.Ordinal)) return;
+            _selectedSdContextPath = value;
             OnPropertyChanged(nameof(HasSelectedSd));
             OnPropertyChanged(nameof(SelectedSdDisplay));
             RaiseWorkflowState();
@@ -195,8 +203,8 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     public bool AutoStartSupported => _startupRegistration.IsSupported;
     public bool IsBusy => _isScanning || _isProcessing;
     public bool IsProcessing => _isProcessing;
-    public bool HasSelectedSd => !string.IsNullOrWhiteSpace(SelectedSdPath);
-    public string SelectedSdDisplay => HasSelectedSd ? SelectedSdPath : "未選択";
+    public bool HasSelectedSd => !string.IsNullOrWhiteSpace(SelectedSdContextPath);
+    public string SelectedSdDisplay => HasSelectedSd ? SelectedSdContextPath : "未選択";
     public bool CanImport => !IsBusy
         && !IsSafeToReuseCurrentCard
         && _scanSession is not null
@@ -327,6 +335,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     {
         _scanSession = null;
         SelectedSdPath = string.Empty;
+        SelectedSdContextPath = string.Empty;
         CountLabel = "RAW:0 / JPG:0 / MP4:0";
         ShowSafetyPanel = false;
         IsSafeToReuseCurrentCard = false;
