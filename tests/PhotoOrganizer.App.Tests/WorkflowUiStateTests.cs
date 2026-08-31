@@ -17,6 +17,7 @@ public sealed class WorkflowUiStateTests
         using var viewModel = new MainWindowViewModel(provider, sessions, roots);
 
         Assert.IsFalse(viewModel.ShowSafetyPanel);
+        Assert.IsFalse(viewModel.ShowMediaSummary);
         Assert.IsFalse(viewModel.HasSelectedSd);
         Assert.AreEqual("未選択", viewModel.SelectedSdDisplay);
         Assert.AreEqual("SDカードを選択してください", viewModel.WorkflowHeadline);
@@ -38,6 +39,7 @@ public sealed class WorkflowUiStateTests
         Assert.IsNotNull(result);
         Assert.IsTrue(result.IsNoSupportedMedia);
         Assert.IsFalse(viewModel.ShowSafetyPanel);
+        Assert.IsFalse(viewModel.ShowMediaSummary);
         Assert.IsFalse(viewModel.HasSelectedSd);
         Assert.AreEqual("SDカードを選択してください", viewModel.WorkflowHeadline);
     }
@@ -55,6 +57,7 @@ public sealed class WorkflowUiStateTests
         using var viewModel = new MainWindowViewModel(provider, sessions, roots);
 
         Assert.IsFalse(viewModel.ShowSafetyPanel);
+        Assert.IsFalse(viewModel.ShowMediaSummary);
 
         var result = await viewModel.ScanCardAsync(temp.Path, autoDetected: true);
 
@@ -62,6 +65,7 @@ public sealed class WorkflowUiStateTests
         Assert.IsTrue(result.IsReady);
         Assert.IsTrue(viewModel.HasSelectedSd);
         Assert.IsTrue(viewModel.ShowSafetyPanel);
+        Assert.IsTrue(viewModel.ShowMediaSummary);
         StringAssert.Contains(viewModel.SafetyHeadline, "未検証");
         Assert.AreNotEqual("SDカードを選択してください", viewModel.WorkflowHeadline);
     }
@@ -87,6 +91,7 @@ public sealed class WorkflowUiStateTests
         Assert.IsTrue(viewModel.HasSelectedSd);
         Assert.AreNotEqual("未選択", viewModel.SelectedSdDisplay);
         Assert.IsTrue(viewModel.ShowSafetyPanel);
+        Assert.IsFalse(viewModel.ShowMediaSummary);
         Assert.AreEqual("SDカードを再選択してください", viewModel.WorkflowHeadline);
         Assert.IsFalse(viewModel.CanImport);
     }
