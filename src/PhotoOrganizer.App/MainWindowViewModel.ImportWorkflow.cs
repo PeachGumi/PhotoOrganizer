@@ -14,6 +14,7 @@ public sealed partial class MainWindowViewModel
         var destination = DestinationPath;
         var eventName = EventName.Trim();
         var importCancellation = new CancellationTokenSource();
+        IsSafeToReuseCurrentCard = false;
         _isProcessing = true;
         _importCancellation = importCancellation;
         RaiseCommandState();
@@ -70,11 +71,13 @@ public sealed partial class MainWindowViewModel
                 SafetyHeadline = "保存先コピー検証済み — SDカード再利用可能";
                 SafetyDetail = $"対象メディア {verified} 件について、取り込み後のSD再スキャン、保存先実ファイルのサイズ・SHA-256一致、永続媒体への同期（durable commit）を確認済みです。これは指定保存先1か所へのコピー検証であり、二重バックアップ済みという意味ではありません。";
                 SafetyBrush = Brushes.ForestGreen;
-                ProgressLabel = "保存先コピー・永続化検証済み";
+                IsSafeToReuseCurrentCard = true;
+                ProgressLabel = "取り込み・検証完了";
                 AppendLog($"最終確認完了: {verified} 件を実ファイルとSHA-256照合し、保存先への永続化を確認しました。SDカードを再利用できます。");
             }
             else
             {
+                IsSafeToReuseCurrentCard = false;
                 SetBlocked(result.Message);
                 ProgressLabel = result.Summary.Failed > 0 ? "一部失敗" : "要確認";
                 AppendLog($"最終確認失敗: {result.Message}");
@@ -84,6 +87,7 @@ public sealed partial class MainWindowViewModel
         {
             if (_disposed) return;
 
+            IsSafeToReuseCurrentCard = false;
             SetBlocked("取り込みをキャンセルしました。最終検証が完了していないため、SDカードを再利用しないでください。");
             ProgressLabel = "取り込みキャンセル";
             AppendLog("取り込みをキャンセルしました。SDカードの安全確認は未完了です。");
@@ -96,6 +100,7 @@ public sealed partial class MainWindowViewModel
             }
             else
             {
+                IsSafeToReuseCurrentCard = false;
                 ReportOperationFailure("取り込み", exception);
             }
         }
