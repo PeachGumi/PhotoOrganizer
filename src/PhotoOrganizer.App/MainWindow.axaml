@@ -6,9 +6,9 @@
         Title="Photo Organizer"
         Icon="/Assets/photo-organizer-icon.ico"
         Width="1040"
-        Height="760"
+        Height="800"
         MinWidth="900"
-        MinHeight="680"
+        MinHeight="720"
         RequestedThemeVariant="Dark"
         Background="#101617">
   <Window.Resources>
@@ -114,19 +114,19 @@
             Background="{StaticResource AccentSurfaceBrush}"
             BorderBrush="#31544E"
             AutomationProperties.Name="次に行う操作">
-      <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="11">
+      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="11">
         <Border Width="30" Height="30" CornerRadius="15" Background="#294943">
           <TextBlock Text="→" FontSize="16" FontWeight="SemiBold"
                      Foreground="{StaticResource AccentStrongBrush}"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
-        <TextBlock Grid.Column="1" Text="{Binding WorkflowHeadline}"
-                   FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"
-                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-        <TextBlock Grid.Column="2" Text="{Binding WorkflowDetail}"
-                   Foreground="{StaticResource MutedForeground}"
-                   VerticalAlignment="Center" TextAlignment="Right"
-                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+          <TextBlock Text="{Binding WorkflowHeadline}"
+                     FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding WorkflowDetail}"
+                     Foreground="{StaticResource MutedForeground}"
+                     FontSize="12" TextWrapping="Wrap" />
+        </StackPanel>
       </Grid>
     </Border>
 
@@ -157,10 +157,10 @@
             <Grid IsVisible="{Binding ShowMediaSummary}" ColumnDefinitions="Auto,*" ColumnSpacing="7">
               <TextBlock Text="✓" Foreground="{StaticResource AccentStrongBrush}" FontWeight="Bold" />
               <TextBlock Grid.Column="1" Text="{Binding CountLabel}" FontWeight="SemiBold"
-                         TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                         TextWrapping="Wrap" />
             </Grid>
             <TextBlock IsVisible="{Binding HasPendingCards}" Text="{Binding PendingSdText}"
-                       Classes="caption" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                       Classes="caption" TextWrapping="Wrap" />
             <TextBlock Text="対象形式: JPG/JPEG・設定済みRAW・MOV/MP4"
                        Classes="caption" />
           </StackPanel>
@@ -206,7 +206,7 @@
                 <TextBlock Text="!" FontWeight="Bold" Foreground="{StaticResource WarningBrush}" />
                 <TextBlock Grid.Column="1" Text="{Binding InputValidationMessage}"
                            Foreground="{StaticResource WarningBrush}"
-                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                           TextWrapping="Wrap"
                            ToolTip.Tip="{Binding InputValidationMessage}" />
               </Grid>
             </Border>
@@ -220,7 +220,7 @@
             <TextBlock Text="保存先プレビュー" Classes="label" />
             <TextBlock x:Name="DestinationPreviewText" FontFamily="monospace"
                        Foreground="{StaticResource AccentStrongBrush}"
-                       TextWrapping="Wrap" MaxHeight="38"
+                       TextWrapping="Wrap"
                        AutomationProperties.Name="保存先プレビュー" />
             <TextBlock Text="撮影日とイベント名から自動整理します" Classes="caption" />
           </StackPanel>
@@ -242,10 +242,10 @@
                            IsIndeterminate="{Binding ProgressIsIndeterminate}"
                            Height="6" AutomationProperties.Name="取り込み進捗" />
               <TextBlock Text="{Binding ProgressLabel}" Classes="caption"
-                         TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                         TextWrapping="Wrap" />
             </StackPanel>
             <TextBlock IsVisible="{Binding !IsBusy}" Text="{Binding ProgressLabel}"
-                       Classes="caption" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                       Classes="caption" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
 
@@ -261,7 +261,7 @@
                            Foreground="{StaticResource SuccessBrush}" />
               </Grid>
               <TextBlock Text="{Binding CompletionSummary}" FontSize="12"
-                         TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                         TextWrapping="Wrap" />
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="7">
                 <TextBlock Text="{Binding LastImportBasePath}" FontFamily="monospace"
                            TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
@@ -282,9 +282,9 @@
               <TextBlock Text="SDカードの再利用" Classes="label" />
               <TextBlock Text="{Binding SafetyHeadline}" FontSize="16" FontWeight="SemiBold"
                          Foreground="{Binding SafetyBrush}"
-                         TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                         TextWrapping="Wrap" />
               <TextBlock Text="{Binding SafetyDetail}" FontSize="12"
-                         TextWrapping="Wrap" MaxHeight="36" />
+                         TextWrapping="Wrap" />
               <TextBlock Text="実ファイル照合と永続化の確認結果です。二重バックアップ済みという意味ではありません。"
                          Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
