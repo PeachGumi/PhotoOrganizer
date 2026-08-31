@@ -69,6 +69,7 @@ public sealed partial class MainWindowViewModel
                 if (autoDetected && result.IsNoSupportedMedia)
                 {
                     continuePendingAfterScan = true;
+                    ShowSafetyPanel = false;
                     AppendLog($"自動選択スキップ（対象メディアなし）: {path}");
                     ProgressLabel = "待機中";
                     return result;
@@ -183,12 +184,14 @@ public sealed partial class MainWindowViewModel
         {
             ClearScanSession();
             SetBlocked("選択中のSDカードが取り外されました。再スキャンと最終検証なしに再利用可能とは判定しません。");
+            ProgressLabel = "SDカードが取り外されました";
             AppendLog("SDカード取り外し: スキャン結果と安全確認状態をリセットしました。");
         }
 
         if (destinationRemoved)
         {
             SetBlocked("保存先ボリュームが取り外されました。保存先を再確認して取り込み・検証をやり直してください。");
+            if (!IsBusy) ProgressLabel = "保存先を再確認してください";
             AppendLog("保存先ボリューム取り外し: 安全確認状態をリセットしました。");
         }
 
