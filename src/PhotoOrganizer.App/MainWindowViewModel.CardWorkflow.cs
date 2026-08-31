@@ -52,7 +52,7 @@ public sealed partial class MainWindowViewModel
         _isScanning = true;
         RaiseCommandState();
         ClearScanSession();
-        SelectedSdPath = path;
+        SelectedSdContextPath = path;
         SetNotVerified("SDカードをスキャン中です。再利用しないでください。");
         ProgressLabel = "SDカードをスキャン中...";
         AppendLog($"スキャン開始: {path}");
@@ -85,6 +85,7 @@ public sealed partial class MainWindowViewModel
 
             _scanSession = result.Session;
             SelectedSdPath = result.Session!.CardRoot;
+            SelectedSdContextPath = result.Session.CardRoot;
             RemoveQueuedCard(result.Session.CardRoot);
             UpdateCounts(result.Session.Files);
             SetNotVerified("完全スキャン済み。取り込み後の再スキャン、保存先実ファイルのサイズ・SHA-256照合、永続媒体への同期が完了するまでSDカードを再利用しないでください。");
@@ -174,15 +175,15 @@ public sealed partial class MainWindowViewModel
         if (_disposed) return;
 
         RemoveQueuedCard(root, volumeRemoval: true);
-        var selectedRemoved = _scanSession is not null
-            && PathSafety.IsSameOrDescendant(_scanSession.CardRoot, root, _storageSessions.PathComparison);
+        var selectedRoot = _scanSession?.CardRoot ?? SelectedSdContextPath;
+        var selectedRemoved = !string.IsNullOrWhiteSpace(selectedRoot)
+            && PathSafety.IsSameOrDescendant(selectedRoot, root, _storageSessions.PathComparison);
         var destinationRemoved = !string.IsNullOrWhiteSpace(DestinationPath)
             && PathSafety.IsSameOrDescendant(DestinationPath, root, _storageSessions.PathComparison);
 
         if (selectedRemoved)
         {
             ClearScanSession();
-            SetBlocked("選択中のSDカードが取り外されました。再スキャンと最終検証なしに再利用可能とは判定しません。");
             ProgressLabel = "SDカードが取り外されました";
             AppendLog("SDカード取り外し: スキャン結果と安全確認状態をリセットしました。");
         }
@@ -210,6 +211,8 @@ public sealed partial class MainWindowViewModel
         var normalized = PathSafety.Normalize(path);
         if (_scanSession is not null
             && string.Equals(_scanSession.CardRoot, normalized, _storageSessions.PathComparison)) return;
+        if (!string.IsNullOrWhiteSpace(SelectedSdContextPath)
+            && string.Equals(PathSafety.Normalize(SelectedSdContextPath), normalized, _storageSessions.PathComparison)) return;
         if (_pendingCards.Any(item => string.Equals(item, normalized, _storageSessions.PathComparison))) return;
         _pendingCards.Add(normalized);
         RaisePendingState();
