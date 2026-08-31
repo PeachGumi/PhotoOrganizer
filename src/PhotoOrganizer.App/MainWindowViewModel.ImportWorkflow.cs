@@ -8,18 +8,33 @@ public sealed partial class MainWindowViewModel
 {
     public async Task StartImportAsync()
     {
-        if (_disposed || !CanImport || _scanSession is null) return;
+        if (_disposed
+            || IsBusy
+            || IsSafeToReuseCurrentCard
+            || DestinationNeedsReselection
+            || _scanSession is null
+            || string.IsNullOrWhiteSpace(DestinationPath)
+            || string.IsNullOrWhiteSpace(EventName)) return;
+
+        await ValidateDestinationAsync().ConfigureAwait(true);
+        if (_disposed || HasInputValidationError)
+        {
+            SetProgressState("入力内容を確認してください");
+            RaiseCommandState();
+            return;
+        }
 
         var session = _scanSession;
         var destination = DestinationPath;
         var eventName = EventName.Trim();
         var importCancellation = new CancellationTokenSource();
+        ClearCompletion();
         IsSafeToReuseCurrentCard = false;
         _isProcessing = true;
         _importCancellation = importCancellation;
         RaiseCommandState();
         SetNotVerified("コピー処理中です。最終検証が完了するまでSDカードを再利用しないでください。");
-        ProgressLabel = "コピー準備中...";
+        SetProgressState("コピー準備中…", indeterminate: true);
         AppendLog("取り込み開始。コピー完了だけではSDカード再利用可能とは判定しません。");
 
         try
@@ -30,7 +45,7 @@ public sealed partial class MainWindowViewModel
 
                 try
                 {
-                    ProgressLabel = update.Message;
+                    ApplyImportProgress(update);
                     if (update.Phase == ImportProgressPhase.Verifying)
                     {
                         SafetyHeadline = "保存先コピーを検証中 — SDカードを再利用しないでください";
@@ -47,9 +62,6 @@ public sealed partial class MainWindowViewModel
                 }
             });
 
-            // ImportAsync performs synchronous scanner and storage work as well as
-            // asynchronous copy/verification. Run the complete operation away from
-            // the dispatcher so a large card cannot freeze the workflow window.
             var result = await Task.Run(
                 () => _coordinator.ImportAsync(
                     session,
@@ -72,14 +84,15 @@ public sealed partial class MainWindowViewModel
                 SafetyDetail = $"対象メディア {verified} 件について、取り込み後のSD再スキャン、保存先実ファイルのサイズ・SHA-256一致、永続媒体への同期（durable commit）を確認済みです。これは指定保存先1か所へのコピー検証であり、二重バックアップ済みという意味ではありません。";
                 SafetyBrush = Brushes.ForestGreen;
                 IsSafeToReuseCurrentCard = true;
-                ProgressLabel = "取り込み・検証完了";
+                SetCompletion(result.Summary.BasePath, verified);
+                SetProgressState("取り込み・検証完了", verified, Math.Max(1, verified));
                 AppendLog($"最終確認完了: {verified} 件を実ファイルとSHA-256照合し、保存先への永続化を確認しました。SDカードを再利用できます。");
             }
             else
             {
                 IsSafeToReuseCurrentCard = false;
-                SetBlocked(result.Message);
-                ProgressLabel = result.Summary.Failed > 0 ? "一部失敗" : "要確認";
+                SetBlocked(GetImportFailureMessage(result));
+                SetProgressState(result.Summary.Failed > 0 ? "一部の取り込みに失敗" : "安全確認を完了できませんでした");
                 AppendLog($"最終確認失敗: {result.Message}");
             }
         }
@@ -89,7 +102,7 @@ public sealed partial class MainWindowViewModel
 
             IsSafeToReuseCurrentCard = false;
             SetBlocked("取り込みをキャンセルしました。最終検証が完了していないため、SDカードを再利用しないでください。");
-            ProgressLabel = "取り込みキャンセル";
+            SetProgressState("取り込みキャンセル");
             AppendLog("取り込みをキャンセルしました。SDカードの安全確認は未完了です。");
         }
         catch (Exception exception)
@@ -130,6 +143,26 @@ public sealed partial class MainWindowViewModel
                 }
             }
         }
+    }
+
+    private static string GetImportFailureMessage(ImportRunResult result)
+    {
+        if (result.Message.Contains("cancel", StringComparison.OrdinalIgnoreCase))
+        {
+            return "取り込みがキャンセルされました。最終検証が完了していないため、SDカードを再利用しないでください。";
+        }
+
+        if (result.Summary.Failed > 0)
+        {
+            return "一部の写真・動画を安全にコピーできませんでした。SDカードは再利用せず、保存先の空き容量と接続状態を確認してからやり直してください。";
+        }
+
+        if (result.Verification is not null)
+        {
+            return "保存先コピーの最終検証を完了できませんでした。SDカードは再利用せず、カードと保存先の接続状態を確認してから再度取り込んでください。";
+        }
+
+        return "取り込み前または取り込み中の安全確認を完了できませんでした。SDカードと保存先の接続状態を確認し、SDカードを再スキャンしてからやり直してください。";
     }
 
     public void CancelImport()
