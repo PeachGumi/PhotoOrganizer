@@ -45,7 +45,6 @@ public sealed class StartupCardDiscoveryTests
 
         var provider = new FakeVolumeProvider(
         [
-            // Missing physical-device identity is a safety failure, not a benign empty-card case.
             new MountedVolumeInfo(brokenCard, "volume-broken", true, false, null),
             new MountedVolumeInfo(validCard, "volume-valid", true, false, "device-valid")
         ]);
@@ -57,7 +56,7 @@ public sealed class StartupCardDiscoveryTests
 
         Assert.AreEqual(string.Empty, viewModel.SelectedSdPath);
         Assert.AreEqual("スキャン失敗", viewModel.ProgressLabel);
-        StringAssert.Contains(viewModel.SafetyDetail, "physical-device identity");
+        StringAssert.Contains(viewModel.SafetyDetail, "物理デバイス情報");
     }
 
     private sealed class FakeVolumeProvider(IReadOnlyList<MountedVolumeInfo> volumes) : IStorageVolumeProvider
