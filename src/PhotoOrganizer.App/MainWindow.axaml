@@ -46,13 +46,15 @@
                     Click="SelectSd_Click"
                     IsEnabled="{Binding !IsBusy}" />
 
-            <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
-                        IsVisible="{Binding ShowSafetyPanel}"
-                        Spacing="3">
-              <TextBlock Text="{Binding CountLabel}" FontWeight="SemiBold" />
-              <TextBlock Text="{Binding PendingSdText}" Opacity="0.65" TextWrapping="Wrap" />
-              <TextBlock Text="対象形式: JPG/JPEG・設定済みRAW・MOV/MP4"
-                         FontSize="12" Opacity="0.55" TextWrapping="Wrap" />
+            <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
+              <StackPanel IsVisible="{Binding ShowMediaSummary}" Spacing="3">
+                <TextBlock Text="{Binding CountLabel}" FontWeight="SemiBold" />
+                <TextBlock Text="対象形式: JPG/JPEG・設定済みRAW・MOV/MP4"
+                           FontSize="12" Opacity="0.55" TextWrapping="Wrap" />
+              </StackPanel>
+              <TextBlock IsVisible="{Binding HasPendingCards}"
+                         Text="{Binding PendingSdText}"
+                         Opacity="0.65" TextWrapping="Wrap" />
             </StackPanel>
 
             <TextBlock Grid.Row="2" Grid.Column="0"
