@@ -35,6 +35,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     private string _safetyHeadline = "未検証 — 最終確認が完了するまでSDカードを再利用しないでください";
     private string _safetyDetail = "判定対象: JPG/JPEG・設定済みRAW・MOV/MP4。その他の形式は取り込み・判定対象外です。";
     private IBrush _safetyBrush = Brushes.DarkOrange;
+    private bool _showSafetyPanel;
     private bool _autoStart;
 
     public MainWindowViewModel(
@@ -85,7 +86,13 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     public string SelectedSdPath
     {
         get => _selectedSdPath;
-        private set => SetField(ref _selectedSdPath, value);
+        private set
+        {
+            if (!SetField(ref _selectedSdPath, value)) return;
+            OnPropertyChanged(nameof(HasSelectedSd));
+            OnPropertyChanged(nameof(SelectedSdDisplay));
+            RaiseWorkflowState();
+        }
     }
 
     public string RawExtensionsText
@@ -108,7 +115,11 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     public string CountLabel
     {
         get => _countLabel;
-        private set => SetField(ref _countLabel, value);
+        private set
+        {
+            if (!SetField(ref _countLabel, value)) return;
+            RaiseWorkflowState();
+        }
     }
 
     public string ProgressLabel
@@ -141,6 +152,12 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         private set => SetField(ref _safetyBrush, value);
     }
 
+    public bool ShowSafetyPanel
+    {
+        get => _showSafetyPanel;
+        private set => SetField(ref _showSafetyPanel, value);
+    }
+
     public bool AutoStart
     {
         get => _autoStart;
@@ -163,6 +180,8 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     public bool AutoStartSupported => _startupRegistration.IsSupported;
     public bool IsBusy => _isScanning || _isProcessing;
     public bool IsProcessing => _isProcessing;
+    public bool HasSelectedSd => _scanSession is not null && !string.IsNullOrWhiteSpace(SelectedSdPath);
+    public string SelectedSdDisplay => HasSelectedSd ? SelectedSdPath : "未選択";
     public bool CanImport => !IsBusy
         && _scanSession is not null
         && !string.IsNullOrWhiteSpace(DestinationPath)
@@ -171,7 +190,53 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     public int PendingSdCount => _pendingCards.Count;
     public string PendingSdText => PendingSdCount == 0
         ? string.Empty
-        : $"待機中のSDカード: {PendingSdCount} 枚 — 現在のカードを切り替えず保持しています";
+        : $"待機中のSDカード: {PendingSdCount} 枚";
+
+    public string WorkflowHeadline
+    {
+        get
+        {
+            if (_isScanning) return "SDカードを確認しています";
+            if (_isProcessing) return "取り込みと安全確認を実行しています";
+            if (_scanSession is null) return "SDカードを選択してください";
+            if (string.IsNullOrWhiteSpace(DestinationPath)) return "保存先を選択してください";
+            if (string.IsNullOrWhiteSpace(EventName)) return "イベント名を入力してください";
+            return "取り込みの準備ができました";
+        }
+    }
+
+    public string WorkflowDetail
+    {
+        get
+        {
+            if (_isScanning)
+            {
+                return "カード全体をスキャンして、対象ファイルとストレージの状態を確認しています。完了までカードを取り外さないでください。";
+            }
+
+            if (_isProcessing)
+            {
+                return "コピー後にSDカードを再スキャンし、保存先の実ファイルとSHA-256を照合します。完了表示までカードを取り外さないでください。";
+            }
+
+            if (_scanSession is null)
+            {
+                return "SDカードを挿すと自動検出します。検出されない場合は「SDカードを選択…」からカード内のフォルダを選択してください。";
+            }
+
+            if (string.IsNullOrWhiteSpace(DestinationPath))
+            {
+                return "写真ライブラリの親フォルダを指定してください。保存先は次回起動時も保持されます。";
+            }
+
+            if (string.IsNullOrWhiteSpace(EventName))
+            {
+                return "この撮影を識別できる短い名前を入力してください。例: 旅行、運動会、撮影会。";
+            }
+
+            return $"{CountLabel} を確認しました。保存先プレビューを確認して、取り込みを開始してください。";
+        }
+    }
 
     public void SetDestinationFromPicker(string path)
     {
@@ -219,6 +284,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         SafetyHeadline = "SDカードを再利用しないでください";
         SafetyDetail = message;
         SafetyBrush = Brushes.IndianRed;
+        if (HasSelectedSd || IsBusy || ShowSafetyPanel) ShowSafetyPanel = true;
     }
 
     private void SetNotVerified(string detail)
@@ -226,6 +292,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         SafetyHeadline = "未検証 — 最終確認が完了するまでSDカードを再利用しないでください";
         SafetyDetail = detail;
         SafetyBrush = Brushes.DarkOrange;
+        if (HasSelectedSd || IsBusy || ShowSafetyPanel) ShowSafetyPanel = true;
     }
 
     private void ClearScanSession()
@@ -233,6 +300,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         _scanSession = null;
         SelectedSdPath = string.Empty;
         CountLabel = "RAW:0 / JPG:0 / MP4:0";
+        ShowSafetyPanel = false;
         RaiseCommandState();
     }
 
@@ -286,6 +354,13 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         OnPropertyChanged(nameof(IsProcessing));
         OnPropertyChanged(nameof(CanImport));
         OnPropertyChanged(nameof(CanCancel));
+        RaiseWorkflowState();
+    }
+
+    private void RaiseWorkflowState()
+    {
+        OnPropertyChanged(nameof(WorkflowHeadline));
+        OnPropertyChanged(nameof(WorkflowDetail));
     }
 
     private void RaisePendingState()
