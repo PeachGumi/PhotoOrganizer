@@ -39,8 +39,6 @@ public sealed partial class MainWindow : Window
     {
         if (_allowExplicitClose) return;
 
-        // Closing the workflow window is not application quit. Keep monitoring in
-        // the tray/menu bar. While processing, keep the window visible as well.
         e.Cancel = true;
         if (_viewModel is not null && !_viewModel.CanCloseWindow()) return;
         Hide();
@@ -67,15 +65,30 @@ public sealed partial class MainWindow : Window
             });
 
             var path = folders.FirstOrDefault()?.TryGetLocalPath();
-            if (!string.IsNullOrWhiteSpace(path)) _viewModel.SetDestinationFromPicker(path);
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                _viewModel.SetDestinationFromPicker(path);
+                await _viewModel.ValidateDestinationAsync();
+            }
         }
         catch (OperationCanceledException)
         {
-            // User cancellation is a normal picker outcome.
         }
         catch (Exception exception)
         {
             ReportUiFailure("保存先選択", exception);
+        }
+    }
+
+    private async void Destination_LostFocus(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_viewModel is not null) await _viewModel.ValidateDestinationAsync();
+        }
+        catch (Exception exception)
+        {
+            ReportUiFailure("保存先確認", exception);
         }
     }
 
@@ -96,7 +109,6 @@ public sealed partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            // User cancellation is a normal picker outcome.
         }
         catch (Exception exception)
         {
@@ -112,9 +124,6 @@ public sealed partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            // StartImportAsync normally converts cancellation into a blocked result.
-            // Keep the UI handler safe if cancellation happens before the operation
-            // is scheduled.
         }
         catch (Exception exception)
         {
@@ -125,6 +134,29 @@ public sealed partial class MainWindow : Window
     private void Cancel_Click(object? sender, RoutedEventArgs e)
     {
         _viewModel?.CancelImport();
+    }
+
+    private void OpenDestination_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null || string.IsNullOrWhiteSpace(_viewModel.LastImportBasePath)) return;
+
+        try
+        {
+            if (!Directory.Exists(_viewModel.LastImportBasePath))
+            {
+                throw new DirectoryNotFoundException("取り込み先フォルダが見つかりません。");
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = _viewModel.LastImportBasePath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception exception)
+        {
+            _viewModel.ReportAuxiliaryFailure("保存先を開く", exception);
+        }
     }
 
     private void StartInBackground_Changed(object? sender, RoutedEventArgs e)
@@ -146,8 +178,6 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // If login startup is already enabled, rewrite the registration so its
-        // command-line arguments match the newly persisted background preference.
         if (_viewModel.AutoStart && !_startupRegistration.SetEnabled(true, out var startupError))
         {
             _backgroundPreferences.Save(previous, out _);
