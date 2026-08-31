@@ -84,6 +84,7 @@ public sealed partial class MainWindowViewModel
             }
 
             _scanSession = result.Session;
+            OnPropertyChanged(nameof(ShowMediaSummary));
             SelectedSdPath = result.Session!.CardRoot;
             SelectedSdContextPath = result.Session.CardRoot;
             RemoveQueuedCard(result.Session.CardRoot);
