@@ -184,6 +184,7 @@ public sealed partial class MainWindowViewModel
         if (selectedRemoved)
         {
             ClearScanSession();
+            SetBlocked("処理対象のSDカードが取り外されました。必要な確認が完了していないため、処理結果を再確認してください。");
             ProgressLabel = "SDカードが取り外されました";
             AppendLog("SDカード取り外し: スキャン結果と安全確認状態をリセットしました。");
         }
