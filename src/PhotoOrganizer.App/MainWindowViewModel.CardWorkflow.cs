@@ -52,6 +52,7 @@ public sealed partial class MainWindowViewModel
         _isScanning = true;
         RaiseCommandState();
         ClearScanSession();
+        SelectedSdPath = path;
         SetNotVerified("SDカードをスキャン中です。再利用しないでください。");
         ProgressLabel = "SDカードをスキャン中...";
         AppendLog($"スキャン開始: {path}");
@@ -69,7 +70,7 @@ public sealed partial class MainWindowViewModel
                 if (autoDetected && result.IsNoSupportedMedia)
                 {
                     continuePendingAfterScan = true;
-                    ShowSafetyPanel = false;
+                    ClearScanSession();
                     AppendLog($"自動選択スキップ（対象メディアなし）: {path}");
                     ProgressLabel = "待機中";
                     return result;
@@ -96,7 +97,6 @@ public sealed partial class MainWindowViewModel
         {
             if (_disposed) return null;
 
-            ClearScanSession();
             SetNotVerified("SDカードのスキャンをキャンセルしました。再スキャンと最終検証が完了するまで再利用しないでください。");
             ProgressLabel = "スキャンキャンセル";
             AppendLog("SDカードのスキャンをキャンセルしました。安全確認は未検証のままです。");
@@ -110,7 +110,6 @@ public sealed partial class MainWindowViewModel
                 return null;
             }
 
-            ClearScanSession();
             SetBlocked("SDカードのスキャン中に予期しないエラーが発生しました。SDカードを再利用しないでください。");
             ProgressLabel = "スキャン失敗";
             AppendLog($"スキャン失敗（予期しないエラー）: {exception.Message}");
