@@ -37,7 +37,9 @@
             <Border Grid.Row="0" Grid.Column="1"
                     Padding="10,7" CornerRadius="6" BorderThickness="1">
               <TextBlock Text="{Binding SelectedSdDisplay}"
-                         TextWrapping="Wrap" />
+                         TextWrapping="NoWrap"
+                         TextTrimming="CharacterEllipsis"
+                         ToolTip.Tip="{Binding SelectedSdDisplay}" />
             </Border>
             <Button Grid.Row="0" Grid.Column="2"
                     Content="SDカードを選択…"
@@ -45,10 +47,12 @@
                     IsEnabled="{Binding !IsBusy}" />
 
             <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
-                        Orientation="Horizontal" Spacing="14">
+                        IsVisible="{Binding ShowSafetyPanel}"
+                        Spacing="3">
               <TextBlock Text="{Binding CountLabel}" FontWeight="SemiBold" />
-              <TextBlock Text="{Binding PendingSdText}" Opacity="0.65" />
-              <TextBlock Text="対象: JPG/JPEG・設定済みRAW・MOV/MP4" Opacity="0.55" />
+              <TextBlock Text="{Binding PendingSdText}" Opacity="0.65" TextWrapping="Wrap" />
+              <TextBlock Text="対象形式: JPG/JPEG・設定済みRAW・MOV/MP4"
+                         FontSize="12" Opacity="0.55" TextWrapping="Wrap" />
             </StackPanel>
 
             <TextBlock Grid.Row="2" Grid.Column="0"
@@ -95,6 +99,7 @@
             <TextBlock Grid.Column="2"
                        Text="{Binding ProgressLabel}"
                        VerticalAlignment="Center"
+                       TextWrapping="Wrap"
                        Opacity="0.7" />
           </Grid>
         </StackPanel>
