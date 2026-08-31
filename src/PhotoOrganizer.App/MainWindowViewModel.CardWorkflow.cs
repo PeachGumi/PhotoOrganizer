@@ -14,9 +14,6 @@ public sealed partial class MainWindowViewModel
 
         try
         {
-            // Volume enumeration may invoke diskutil/WMI and must never run on the
-            // Avalonia dispatcher. ScanCardAsync performs the same isolation for the
-            // actual card scan below.
             var candidates = await Task.Run(() => _cardRoots.GetCandidateRoots()).ConfigureAwait(true);
 
             foreach (var candidate in candidates)
@@ -25,9 +22,6 @@ public sealed partial class MainWindowViewModel
 
                 var result = await ScanCardAsync(candidate, autoDetected: true).ConfigureAwait(true);
                 if (_disposed || result is null || result.IsReady) return;
-
-                // Only an otherwise valid card with no supported media is benign.
-                // Every real scan/safety failure remains visible and fail-closed.
                 if (!result.IsNoSupportedMedia) return;
             }
         }
@@ -51,10 +45,11 @@ public sealed partial class MainWindowViewModel
         _scanCancellation = scanCancellation;
         _isScanning = true;
         RaiseCommandState();
+        ClearCompletion();
         ClearScanSession();
         SelectedSdContextPath = path;
         SetNotVerified("SDカードをスキャン中です。再利用しないでください。");
-        ProgressLabel = "SDカードをスキャン中...";
+        SetProgressState("SDカードをスキャン中…", indeterminate: true);
         AppendLog($"スキャン開始: {path}");
 
         try
@@ -72,13 +67,14 @@ public sealed partial class MainWindowViewModel
                     continuePendingAfterScan = true;
                     ClearScanSession();
                     AppendLog($"自動選択スキップ（対象メディアなし）: {path}");
-                    ProgressLabel = "待機中";
+                    SetProgressState("待機中");
                     return result;
                 }
 
-                SetBlocked(result.Message);
-                ProgressLabel = "スキャン失敗";
-                AppendLog($"スキャン失敗: {result.Message}");
+                var userMessage = GetScanFailureMessage(result);
+                SetBlocked(userMessage);
+                SetProgressState("スキャン失敗");
+                AppendLog($"スキャン失敗: {userMessage} / 技術情報: {result.Message}");
                 foreach (var error in result.Errors.Take(5)) AppendLog($"  {error}");
                 return result;
             }
@@ -89,8 +85,10 @@ public sealed partial class MainWindowViewModel
             SelectedSdContextPath = result.Session.CardRoot;
             RemoveQueuedCard(result.Session.CardRoot);
             UpdateCounts(result.Session.Files);
+            RefreshLightweightInputValidation();
+            await ValidateDestinationAsync().ConfigureAwait(true);
             SetNotVerified("完全スキャン済み。取り込み後の再スキャン、保存先実ファイルのサイズ・SHA-256照合、永続媒体への同期が完了するまでSDカードを再利用しないでください。");
-            ProgressLabel = "取り込み準備完了";
+            SetProgressState("取り込み準備完了");
             AppendLog($"スキャン完了: {result.Session.Files.Count} 件 / {CountLabel}");
             RequestShowWindow?.Invoke();
             return result;
@@ -100,7 +98,7 @@ public sealed partial class MainWindowViewModel
             if (_disposed) return null;
 
             SetNotVerified("SDカードのスキャンをキャンセルしました。再スキャンと最終検証が完了するまで再利用しないでください。");
-            ProgressLabel = "スキャンキャンセル";
+            SetProgressState("スキャンキャンセル");
             AppendLog("SDカードのスキャンをキャンセルしました。安全確認は未検証のままです。");
             return null;
         }
@@ -112,8 +110,8 @@ public sealed partial class MainWindowViewModel
                 return null;
             }
 
-            SetBlocked("SDカードのスキャン中に予期しないエラーが発生しました。SDカードを再利用しないでください。");
-            ProgressLabel = "スキャン失敗";
+            SetBlocked("SDカードのスキャン中に予期しないエラーが発生しました。カードを挿し直して再選択してください。");
+            SetProgressState("スキャン失敗");
             AppendLog($"スキャン失敗（予期しないエラー）: {exception.Message}");
             return null;
         }
@@ -137,6 +135,24 @@ public sealed partial class MainWindowViewModel
         }
     }
 
+    private static string GetScanFailureMessage(ScanSessionResult result) => result.FailureReason switch
+    {
+        ScanFailureReason.InvalidCardRoot =>
+            "カメラで使用したSDカード全体を確認できませんでした。SDカード、またはカード内のフォルダを選択し直してください。",
+        ScanFailureReason.MissingMountSessionIdentity =>
+            "SDカードの接続状態を安全に確認できませんでした。カードを挿し直して再選択してください。",
+        ScanFailureReason.MissingPhysicalDeviceIdentity =>
+            "SDカードの物理デバイス情報を確認できないため、安全に処理できません。カードを挿し直して再選択してください。",
+        ScanFailureReason.StorageChanged =>
+            "スキャン中にSDカードの接続状態が変化しました。カードを挿し直して再スキャンしてください。",
+        ScanFailureReason.IncompleteScan =>
+            "SDカード全体を読み取れませんでした。カードやカードリーダーの接続を確認して再スキャンしてください。",
+        ScanFailureReason.NoSupportedMedia =>
+            "取り込み対象の写真・動画が見つかりませんでした。対象形式はJPG/JPEG・設定済みRAW・MOV/MP4です。",
+        _ =>
+            "SDカードを安全に確認できませんでした。カードを挿し直して再選択してください。"
+    };
+
     private void OnVolumeMounted(string root) =>
         PostUiTask("カメラカード検出", () => HandleVolumeMountedAsync(root));
 
@@ -148,10 +164,6 @@ public sealed partial class MainWindowViewModel
         for (var attempt = 0; attempt < 5 && candidate is null; attempt++)
         {
             if (_disposed) return;
-
-            // Resolving a nested path enumerates mounted volumes and can invoke
-            // diskutil/WMI. Keep that work off the dispatcher even though this
-            // handler itself is resumed on the UI thread.
             candidate = await Task.Run(() => _cardRoots.Resolve(root)).ConfigureAwait(true);
             if (candidate is null) await Task.Delay(300).ConfigureAwait(true);
         }
@@ -186,7 +198,7 @@ public sealed partial class MainWindowViewModel
         {
             ClearScanSession();
             SetBlocked("処理対象のSDカードが取り外されました。必要な確認が完了していないため、処理結果を再確認してください。");
-            ProgressLabel = "SDカードが取り外されました";
+            SetProgressState("SDカードが取り外されました");
             AppendLog("SDカード取り外し: スキャン結果と安全確認状態をリセットしました。");
         }
 
@@ -195,7 +207,7 @@ public sealed partial class MainWindowViewModel
             IsSafeToReuseCurrentCard = false;
             DestinationNeedsReselection = true;
             SetBlocked("保存先ボリュームが取り外されました。保存先を再確認して取り込み・検証をやり直してください。");
-            if (!IsBusy) ProgressLabel = "保存先を再確認してください";
+            if (!IsBusy) SetProgressState("保存先を再確認してください");
             AppendLog("保存先ボリューム取り外し: 安全確認状態をリセットしました。");
         }
 
@@ -250,10 +262,6 @@ public sealed partial class MainWindowViewModel
 
                 var result = await ScanCardAsync(next, autoDetected: true).ConfigureAwait(true);
                 if (_scanSession is not null) return;
-
-                // Only a benign empty camera card may be skipped automatically.
-                // A real scan/safety failure or cancellation must remain visible and
-                // stop queue advancement instead of being overwritten by another scan.
                 if (result is null || !result.IsNoSupportedMedia) return;
             }
         }
@@ -285,8 +293,6 @@ public sealed partial class MainWindowViewModel
         }
         catch (OperationCanceledException) when (_disposed)
         {
-            // Disposal cancellation is expected and must not be reported as a user
-            // failure after the application lifetime has ended.
         }
         catch (Exception exception)
         {
