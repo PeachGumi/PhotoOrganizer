@@ -87,7 +87,7 @@ public sealed partial class MainWindow : Window
 
             var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
             {
-                Title = "SDカードを選択（DCIM/PRIVATE内のフォルダを選択してもカード全体を検証します）",
+                Title = "SDカードまたはカード内のフォルダを選択",
                 AllowMultiple = false
             });
 
