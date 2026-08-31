@@ -93,6 +93,32 @@ public sealed class WorkflowUiStateTests
         Assert.IsTrue(viewModel.ShowSafetyPanel);
         Assert.IsFalse(viewModel.ShowMediaSummary);
         Assert.AreEqual("SDカードを再選択してください", viewModel.WorkflowHeadline);
+        StringAssert.Contains(viewModel.SafetyDetail, "物理デバイス情報");
+        Assert.IsFalse(viewModel.CanImport);
+    }
+
+    [TestMethod]
+    public async Task DestinationOnCameraCard_IsExplainedBeforeImportCanStart()
+    {
+        using var temp = new TempDirectory();
+        var mediaDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "DCIM", "100CAM")).FullName;
+        await File.WriteAllBytesAsync(Path.Combine(mediaDirectory, "photo.jpg"), [1, 2, 3, 4]);
+
+        var provider = new TestVolumeProvider(temp.Path);
+        var sessions = new StorageSessionTracker(provider);
+        var roots = new CameraCardRootResolver(provider);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+
+        var result = await viewModel.ScanCardAsync(temp.Path);
+        Assert.IsNotNull(result);
+        Assert.IsTrue(result.IsReady);
+
+        viewModel.DestinationPath = temp.Path;
+        viewModel.EventName = "テスト撮影";
+
+        Assert.IsTrue(viewModel.HasInputValidationError);
+        StringAssert.Contains(viewModel.InputValidationMessage, "SDカード自身");
+        Assert.AreEqual("入力内容を確認してください", viewModel.WorkflowHeadline);
         Assert.IsFalse(viewModel.CanImport);
     }
 
@@ -143,7 +169,6 @@ public sealed class WorkflowUiStateTests
             }
             catch
             {
-                // Best-effort test cleanup only.
             }
         }
     }
