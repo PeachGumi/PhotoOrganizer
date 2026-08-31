@@ -85,8 +85,22 @@
       <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
       <Setter Property="Background" Value="#263231" />
     </Style>
-    <Style Selector="Expander">
+    <Style Selector="Border.utilityInset">
+      <Setter Property="Background" Value="#11191A" />
+      <Setter Property="BorderBrush" Value="#243131" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{StaticResource MutedForeground}" />
+      <Setter Property="Padding" Value="12,7" />
+      <Setter Property="MinHeight" Value="32" />
+    </Style>
+    <Style Selector="TabItem:selected">
+      <Setter Property="Foreground" Value="{StaticResource PageForeground}" />
+      <Setter Property="Background" Value="{StaticResource ElevatedSurfaceBrush}" />
     </Style>
   </Window.Styles>
 
@@ -302,41 +316,73 @@
       </Grid>
     </Grid>
 
-    <Border Grid.Row="3" Classes="surface" Padding="3">
-      <Grid ColumnDefinitions="*,*" ColumnSpacing="4">
-        <Expander Grid.Column="0" Header="詳細設定" MaxHeight="190">
-          <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="145">
-            <StackPanel Margin="12,7,12,10" Spacing="9">
-              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="9">
-                <TextBlock Text="RAW拡張子" Classes="label" VerticalAlignment="Center" />
-                <TextBox Grid.Column="1" Text="{Binding RawExtensionsText, Mode=TwoWay}"
-                         IsEnabled="{Binding !IsBusy}" PlaceholderText=".arw, .cr3, .nef, ..."
-                         AutomationProperties.Name="追加するRAW拡張子" />
-              </Grid>
-              <TextBlock Text="JPG/JPEGとMOV/MP4は常に対象です。追加RAWのみ指定します。"
+    <Border Grid.Row="3" Classes="surface" Padding="0">
+      <Expander MaxHeight="226">
+        <Expander.Header>
+          <Grid Margin="13,9" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+            <Border Width="26" Height="26" CornerRadius="7"
+                    Background="{StaticResource ElevatedSurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+              <TextBlock Text="•••" FontSize="11" LetterSpacing="1"
+                         Foreground="{StaticResource AccentStrongBrush}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
+              <TextBlock Text="環境設定と診断" FontSize="12" FontWeight="SemiBold" />
+              <TextBlock Text="取り込み形式・起動動作・処理ログ"
                          Classes="caption" />
-              <CheckBox Content="ログイン時にPhoto Organizerを自動起動"
-                        IsChecked="{Binding AutoStart, Mode=TwoWay}"
-                        IsEnabled="{Binding AutoStartSupported}" />
-              <TextBlock Text="SDカードの再利用可否は、安全のためアプリ再起動後には引き継ぎません。"
-                         Margin="24,0,0,0" Classes="caption" TextWrapping="Wrap" />
-              <CheckBox x:Name="StartInBackgroundCheckBox"
-                        Content="起動時はトレイ / メニューバーに常駐" />
-              <TextBlock x:Name="BackgroundSettingStatus" Margin="24,0,0,0"
-                         Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
-          </ScrollViewer>
-        </Expander>
+            <Border Grid.Column="2" Padding="8,3" CornerRadius="10"
+                    Background="{StaticResource SoftSurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                    VerticalAlignment="Center">
+              <TextBlock Text="必要なときだけ開く" FontSize="10"
+                         Foreground="{StaticResource SubtleForeground}" />
+            </Border>
+          </Grid>
+        </Expander.Header>
 
-        <Expander Grid.Column="1" Header="詳細ログ" MaxHeight="190">
-          <TextBox Margin="12,7,12,10" Height="135"
-                   Text="{Binding LogText}" IsReadOnly="True" AcceptsReturn="True"
-                   TextWrapping="NoWrap"
-                   ScrollViewer.VerticalScrollBarVisibility="Auto"
-                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                   FontFamily="monospace" AutomationProperties.Name="詳細ログ" />
-        </Expander>
-      </Grid>
+        <TabControl Margin="10,0,10,10" Height="166">
+          <TabItem Header="取り込み設定">
+            <Border Classes="utilityInset" Padding="12,10">
+              <Grid ColumnDefinitions="1.2*,1*" ColumnSpacing="18">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="対象メディア" Classes="label" />
+                  <TextBox Text="{Binding RawExtensionsText, Mode=TwoWay}"
+                           IsEnabled="{Binding !IsBusy}" PlaceholderText=".arw, .cr3, .nef, ..."
+                           AutomationProperties.Name="追加するRAW拡張子" />
+                  <TextBlock Text="JPG/JPEG・MOV/MP4は常に対象。ここでは追加RAWだけ指定します。"
+                             Classes="caption" TextWrapping="Wrap" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Spacing="6">
+                  <TextBlock Text="起動動作" Classes="label" />
+                  <CheckBox Content="ログイン時に自動起動"
+                            IsChecked="{Binding AutoStart, Mode=TwoWay}"
+                            IsEnabled="{Binding AutoStartSupported}" />
+                  <CheckBox x:Name="StartInBackgroundCheckBox"
+                            Content="トレイ / メニューバーに常駐" />
+                  <TextBlock x:Name="BackgroundSettingStatus"
+                             Classes="caption" TextWrapping="Wrap" />
+                </StackPanel>
+              </Grid>
+            </Border>
+          </TabItem>
+
+          <TabItem Header="診断ログ">
+            <Border Classes="utilityInset" Padding="7">
+              <TextBox Height="105" Padding="9,7"
+                       Background="Transparent" BorderThickness="0"
+                       Text="{Binding LogText}" IsReadOnly="True" AcceptsReturn="True"
+                       TextWrapping="NoWrap"
+                       ScrollViewer.VerticalScrollBarVisibility="Auto"
+                       ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                       FontFamily="monospace" FontSize="11"
+                       AutomationProperties.Name="詳細ログ" />
+            </Border>
+          </TabItem>
+        </TabControl>
+      </Expander>
     </Border>
   </Grid>
 </Window>
