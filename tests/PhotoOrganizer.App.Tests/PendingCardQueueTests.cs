@@ -82,7 +82,7 @@ public sealed class PendingCardQueueTests
         Assert.AreEqual(string.Empty, viewModel.SelectedSdPath);
         Assert.AreEqual("スキャン失敗", viewModel.ProgressLabel);
         Assert.AreEqual(1, viewModel.PendingSdCount);
-        StringAssert.Contains(viewModel.SafetyDetail, "physical-device identity");
+        StringAssert.Contains(viewModel.SafetyDetail, "物理デバイス情報");
     }
 
     [TestMethod]
@@ -125,7 +125,7 @@ public sealed class PendingCardQueueTests
         Assert.AreEqual(string.Empty, viewModel.SelectedSdPath);
         Assert.AreEqual("スキャン失敗", viewModel.ProgressLabel);
         Assert.AreEqual(1, viewModel.PendingSdCount);
-        StringAssert.Contains(viewModel.SafetyDetail, "physical-device identity");
+        StringAssert.Contains(viewModel.SafetyDetail, "物理デバイス情報");
     }
 
     private sealed class BlockingVolumeProvider(IReadOnlyList<MountedVolumeInfo> volumes)
