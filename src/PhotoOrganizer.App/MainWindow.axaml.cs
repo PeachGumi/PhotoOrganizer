@@ -159,6 +159,18 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void EjectSd_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_viewModel is not null) await _viewModel.EjectSelectedSdAsync();
+        }
+        catch (Exception exception)
+        {
+            ReportUiFailure("SDカード取り出し", exception);
+        }
+    }
+
     private void StartInBackground_Changed(object? sender, RoutedEventArgs e)
     {
         if (_changingBackgroundPreference || _viewModel is null) return;

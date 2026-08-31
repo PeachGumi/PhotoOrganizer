@@ -279,7 +279,16 @@
                   Background="{StaticResource SurfaceBrush}" BorderBrush="{Binding SafetyBrush}"
                   AutomationProperties.Name="SDカード再利用の安全状態">
             <StackPanel Spacing="4">
-              <TextBlock Text="SDカードの再利用" Classes="label" />
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBlock Text="SDカードの再利用" Classes="label" VerticalAlignment="Center" />
+                <Button Grid.Column="1"
+                        IsVisible="{Binding EjectSupported}"
+                        Content="安全に取り出す"
+                        Click="EjectSd_Click"
+                        IsEnabled="{Binding CanEjectSelectedSd}"
+                        Padding="11,6"
+                        AutomationProperties.Name="SDカードを安全に取り出す" />
+              </Grid>
               <TextBlock Text="{Binding SafetyHeadline}" FontSize="16" FontWeight="SemiBold"
                          Foreground="{Binding SafetyBrush}"
                          TextWrapping="Wrap" />

@@ -11,6 +11,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     private readonly IStorageVolumeProvider _volumeProvider;
     private readonly StorageSessionTracker _storageSessions;
     private readonly CameraCardRootResolver _cardRoots;
+    private readonly IStorageEjectService _storageEjectService;
     private readonly AppPreferencesStore _preferencesStore = new();
     private readonly IStartupRegistrationService _startupRegistration = new StartupRegistrationService();
     private readonly List<string> _logLines = [];
@@ -52,10 +53,20 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         IStorageVolumeProvider volumeProvider,
         StorageSessionTracker storageSessions,
         CameraCardRootResolver cardRoots)
+        : this(volumeProvider, storageSessions, cardRoots, StorageEjectServiceFactory.Create())
+    {
+    }
+
+    public MainWindowViewModel(
+        IStorageVolumeProvider volumeProvider,
+        StorageSessionTracker storageSessions,
+        CameraCardRootResolver cardRoots,
+        IStorageEjectService storageEjectService)
     {
         _volumeProvider = volumeProvider;
         _storageSessions = storageSessions;
         _cardRoots = cardRoots;
+        _storageEjectService = storageEjectService;
 
         var preferences = _preferencesStore.Load();
         _destinationPath = preferences.DestinationPath;
@@ -236,6 +247,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         {
             if (!SetField(ref _isSafeToReuseCurrentCard, value)) return;
             OnPropertyChanged(nameof(CanImport));
+            OnPropertyChanged(nameof(CanEjectSelectedSd));
             RaiseWorkflowState();
         }
     }
@@ -678,6 +690,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         OnPropertyChanged(nameof(IsProcessing));
         OnPropertyChanged(nameof(CanImport));
         OnPropertyChanged(nameof(CanCancel));
+        OnPropertyChanged(nameof(CanEjectSelectedSd));
         RaiseWorkflowState();
     }
 
