@@ -1,0 +1,54 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:PhotoOrganizer.App"
+        x:Class="PhotoOrganizer.App.SettingsWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="Photo Organizer 設定"
+        Icon="/Assets/photo-organizer-icon.ico"
+        Width="520" Height="390"
+        MinWidth="480" MinHeight="360"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        RequestedThemeVariant="Dark"
+        Background="#151B1C">
+  <Window.Styles>
+    <Style Selector="TextBlock"><Setter Property="Foreground" Value="#EEF3F2" /></Style>
+    <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+    <Style Selector="TextBlock.caption"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#81918E" /></Style>
+    <Style Selector="Border.card"><Setter Property="Background" Value="#1B2425" /><Setter Property="BorderBrush" Value="#2B3939" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="10" /></Style>
+    <Style Selector="TextBox"><Setter Property="CornerRadius" Value="8" /><Setter Property="Padding" Value="10,8" /><Setter Property="Background" Value="#111819" /><Setter Property="BorderBrush" Value="#2B3939" /></Style>
+  </Window.Styles>
+
+  <Grid Margin="22" RowDefinitions="Auto,Auto,Auto" RowSpacing="14">
+    <StackPanel Spacing="2">
+      <TextBlock Text="設定" FontSize="20" FontWeight="SemiBold" />
+      <TextBlock Text="メニューバーからいつでも変更できます" Classes="caption" />
+    </StackPanel>
+
+    <Border Grid.Row="1" Classes="card" Padding="14">
+      <StackPanel Spacing="8">
+        <TextBlock Text="取り込み対象" Classes="section" />
+        <TextBlock Text="追加するRAW拡張子" Classes="caption" />
+        <TextBox Text="{Binding RawExtensionsText, Mode=TwoWay}"
+                 IsEnabled="{Binding !IsBusy}"
+                 PlaceholderText=".arw, .cr3, .nef, ..."
+                 AutomationProperties.Name="追加するRAW拡張子" />
+        <TextBlock Text="JPG/JPEG・MOV/MP4は常に対象です。ここでは追加RAWだけ指定します。"
+                   Classes="caption" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <Border Grid.Row="2" Classes="card" Padding="14">
+      <StackPanel Spacing="7">
+        <TextBlock Text="起動動作" Classes="section" />
+        <CheckBox Content="ログイン時にPhoto Organizerを自動起動"
+                  IsChecked="{Binding AutoStart, Mode=TwoWay}"
+                  IsEnabled="{Binding AutoStartSupported}" />
+        <CheckBox x:Name="StartInBackgroundCheckBox"
+                  Content="起動時はメニューバーに常駐" />
+        <TextBlock x:Name="BackgroundSettingStatus" Margin="24,0,0,0"
+                   Classes="caption" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

@@ -1,0 +1,30 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:PhotoOrganizer.App"
+        x:Class="PhotoOrganizer.App.DiagnosticsWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="Photo Organizer 詳細ログ"
+        Icon="/Assets/photo-organizer-icon.ico"
+        Width="720" Height="430"
+        MinWidth="520" MinHeight="300"
+        WindowStartupLocation="CenterScreen"
+        RequestedThemeVariant="Dark"
+        Background="#151B1C">
+  <Grid Margin="18" RowDefinitions="Auto,*" RowSpacing="10">
+    <StackPanel Spacing="2">
+      <TextBlock Text="詳細ログ" FontSize="18" FontWeight="SemiBold" Foreground="#EEF3F2" />
+      <TextBlock Text="SDカードの検出・取り込み・検証結果"
+                 FontSize="11" Foreground="#81918E" />
+    </StackPanel>
+    <Border Grid.Row="1" Background="#101617" BorderBrush="#2B3939"
+            BorderThickness="1" CornerRadius="9" Padding="7">
+      <TextBox Text="{Binding LogText}" IsReadOnly="True" AcceptsReturn="True"
+               Background="Transparent" BorderThickness="0" Padding="9,7"
+               TextWrapping="NoWrap"
+               ScrollViewer.VerticalScrollBarVisibility="Auto"
+               ScrollViewer.HorizontalScrollBarVisibility="Auto"
+               FontFamily="monospace" FontSize="11"
+               AutomationProperties.Name="詳細ログ" />
+    </Border>
+  </Grid>
+</Window>

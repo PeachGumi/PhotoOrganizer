@@ -13,6 +13,8 @@ public sealed partial class App : Application
     private StorageMonitor? _storageMonitor;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
     private MainWindow? _mainWindow;
+    private SettingsWindow? _settingsWindow;
+    private DiagnosticsWindow? _diagnosticsWindow;
     private MainWindowViewModel? _viewModel;
     private bool _explicitQuitRequested;
 
@@ -78,7 +80,36 @@ public sealed partial class App : Application
 
     private void ShowWindowMenu_Click(object? sender, EventArgs e) => ShowMainWindow();
 
+    private void SettingsMenu_Click(object? sender, EventArgs e)
+    {
+        if (_viewModel is null) return;
+        if (_settingsWindow is null)
+        {
+            _settingsWindow = new SettingsWindow(_viewModel);
+            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        }
+        ShowUtilityWindow(_settingsWindow);
+    }
+
+    private void DiagnosticsMenu_Click(object? sender, EventArgs e)
+    {
+        if (_viewModel is null) return;
+        if (_diagnosticsWindow is null)
+        {
+            _diagnosticsWindow = new DiagnosticsWindow(_viewModel);
+            _diagnosticsWindow.Closed += (_, _) => _diagnosticsWindow = null;
+        }
+        ShowUtilityWindow(_diagnosticsWindow);
+    }
+
     private void QuitMenu_Click(object? sender, EventArgs e) => RequestQuit();
+
+    private static void ShowUtilityWindow(Window window)
+    {
+        if (!window.IsVisible) window.Show();
+        window.WindowState = WindowState.Normal;
+        window.Activate();
+    }
 
     private void ShowMainWindow()
     {
@@ -106,6 +137,8 @@ public sealed partial class App : Application
         }
 
         _explicitQuitRequested = true;
+        _settingsWindow?.Close();
+        _diagnosticsWindow?.Close();
         _mainWindow?.AllowExplicitClose();
         _desktop.Shutdown();
     }

@@ -15,6 +15,9 @@
           <NativeMenu>
             <NativeMenuItem Header="Photo Organizerを表示" Click="ShowWindowMenu_Click" />
             <NativeMenuItemSeparator />
+            <NativeMenuItem Header="設定…" Click="SettingsMenu_Click" />
+            <NativeMenuItem Header="詳細ログ…" Click="DiagnosticsMenu_Click" />
+            <NativeMenuItemSeparator />
             <NativeMenuItem Header="終了" Click="QuitMenu_Click" />
           </NativeMenu>
         </TrayIcon.Menu>
