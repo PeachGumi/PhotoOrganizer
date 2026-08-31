@@ -23,6 +23,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     private CancellationTokenSource? _importCancellation;
     private bool _isScanning;
     private bool _isProcessing;
+    private bool _isSafeToReuseCurrentCard;
     private bool _disposed;
 
     private string _destinationPath;
@@ -67,7 +68,10 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         set
         {
             if (!SetField(ref _destinationPath, value)) return;
-            SetNotVerified("保存先が変更されました。次の取り込み後に再検証が必要です。");
+            if (!IsSafeToReuseCurrentCard)
+            {
+                SetNotVerified("保存先が変更されました。次の取り込み後に再検証が必要です。");
+            }
             SavePreferences();
             RaiseCommandState();
         }
@@ -158,6 +162,17 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         private set => SetField(ref _showSafetyPanel, value);
     }
 
+    public bool IsSafeToReuseCurrentCard
+    {
+        get => _isSafeToReuseCurrentCard;
+        private set
+        {
+            if (!SetField(ref _isSafeToReuseCurrentCard, value)) return;
+            OnPropertyChanged(nameof(CanImport));
+            RaiseWorkflowState();
+        }
+    }
+
     public bool AutoStart
     {
         get => _autoStart;
@@ -183,6 +198,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     public bool HasSelectedSd => _scanSession is not null && !string.IsNullOrWhiteSpace(SelectedSdPath);
     public string SelectedSdDisplay => HasSelectedSd ? SelectedSdPath : "未選択";
     public bool CanImport => !IsBusy
+        && !IsSafeToReuseCurrentCard
         && _scanSession is not null
         && !string.IsNullOrWhiteSpace(DestinationPath)
         && !string.IsNullOrWhiteSpace(EventName);
@@ -198,6 +214,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         {
             if (_isScanning) return "SDカードを確認しています";
             if (_isProcessing) return "取り込みと安全確認を実行しています";
+            if (IsSafeToReuseCurrentCard && _scanSession is not null) return "取り込みと検証が完了しました";
             if (_scanSession is null) return "SDカードを選択してください";
             if (string.IsNullOrWhiteSpace(DestinationPath)) return "保存先を選択してください";
             if (string.IsNullOrWhiteSpace(EventName)) return "イベント名を入力してください";
@@ -217,6 +234,11 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
             if (_isProcessing)
             {
                 return "コピー後にSDカードを再スキャンし、保存先の実ファイルとSHA-256を照合します。完了表示までカードを取り外さないでください。";
+            }
+
+            if (IsSafeToReuseCurrentCard && _scanSession is not null)
+            {
+                return "SDカードを再利用できます。カードを取り外すと、次のSDカードを自動検出できる状態に戻ります。";
             }
 
             if (_scanSession is null)
@@ -301,6 +323,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         SelectedSdPath = string.Empty;
         CountLabel = "RAW:0 / JPG:0 / MP4:0";
         ShowSafetyPanel = false;
+        IsSafeToReuseCurrentCard = false;
         RaiseCommandState();
     }
 
