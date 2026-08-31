@@ -211,8 +211,6 @@ public sealed partial class MainWindowViewModel
         var normalized = PathSafety.Normalize(path);
         if (_scanSession is not null
             && string.Equals(_scanSession.CardRoot, normalized, _storageSessions.PathComparison)) return;
-        if (!string.IsNullOrWhiteSpace(SelectedSdContextPath)
-            && string.Equals(PathSafety.Normalize(SelectedSdContextPath), normalized, _storageSessions.PathComparison)) return;
         if (_pendingCards.Any(item => string.Equals(item, normalized, _storageSessions.PathComparison))) return;
         _pendingCards.Add(normalized);
         RaisePendingState();
