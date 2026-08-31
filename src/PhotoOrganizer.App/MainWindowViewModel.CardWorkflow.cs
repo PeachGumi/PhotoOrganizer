@@ -192,6 +192,8 @@ public sealed partial class MainWindowViewModel
 
         if (destinationRemoved)
         {
+            IsSafeToReuseCurrentCard = false;
+            DestinationNeedsReselection = true;
             SetBlocked("保存先ボリュームが取り外されました。保存先を再確認して取り込み・検証をやり直してください。");
             if (!IsBusy) ProgressLabel = "保存先を再確認してください";
             AppendLog("保存先ボリューム取り外し: 安全確認状態をリセットしました。");
