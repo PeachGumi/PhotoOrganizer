@@ -204,6 +204,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     public bool IsBusy => _isScanning || _isProcessing;
     public bool IsProcessing => _isProcessing;
     public bool HasSelectedSd => !string.IsNullOrWhiteSpace(SelectedSdContextPath);
+    public bool ShowMediaSummary => _scanSession is not null;
     public string SelectedSdDisplay => HasSelectedSd ? SelectedSdContextPath : "未選択";
     public bool CanImport => !IsBusy
         && !IsSafeToReuseCurrentCard
@@ -212,6 +213,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         && !string.IsNullOrWhiteSpace(EventName);
     public bool CanCancel => IsBusy;
     public int PendingSdCount => _pendingCards.Count;
+    public bool HasPendingCards => PendingSdCount > 0;
     public string PendingSdText => PendingSdCount == 0
         ? string.Empty
         : $"待機中のSDカード: {PendingSdCount} 枚";
@@ -334,6 +336,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     private void ClearScanSession()
     {
         _scanSession = null;
+        OnPropertyChanged(nameof(ShowMediaSummary));
         SelectedSdPath = string.Empty;
         SelectedSdContextPath = string.Empty;
         CountLabel = "RAW:0 / JPG:0 / 動画:0";
@@ -404,6 +407,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     private void RaisePendingState()
     {
         OnPropertyChanged(nameof(PendingSdCount));
+        OnPropertyChanged(nameof(HasPendingCards));
         OnPropertyChanged(nameof(PendingSdText));
     }
 
