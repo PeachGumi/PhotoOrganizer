@@ -66,11 +66,36 @@ public sealed class WorkflowUiStateTests
         Assert.AreNotEqual("SDカードを選択してください", viewModel.WorkflowHeadline);
     }
 
+    [TestMethod]
+    public async Task FailedCardScan_KeepsUiContextWithoutClaimingValidatedSelection()
+    {
+        using var temp = new TempDirectory();
+        var mediaDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "DCIM", "100CAM")).FullName;
+        await File.WriteAllBytesAsync(Path.Combine(mediaDirectory, "photo.jpg"), [1, 2, 3, 4]);
+
+        var provider = new TestVolumeProvider(temp.Path, hasPhysicalDeviceIdentity: false);
+        var sessions = new StorageSessionTracker(provider);
+        var roots = new CameraCardRootResolver(provider);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+
+        var result = await viewModel.ScanCardAsync(temp.Path);
+
+        Assert.IsNotNull(result);
+        Assert.IsFalse(result.IsReady);
+        Assert.AreEqual(ScanFailureReason.MissingPhysicalDeviceIdentity, result.FailureReason);
+        Assert.AreEqual(string.Empty, viewModel.SelectedSdPath);
+        Assert.IsTrue(viewModel.HasSelectedSd);
+        Assert.AreNotEqual("未選択", viewModel.SelectedSdDisplay);
+        Assert.IsTrue(viewModel.ShowSafetyPanel);
+        Assert.AreEqual("SDカードを再選択してください", viewModel.WorkflowHeadline);
+        Assert.IsFalse(viewModel.CanImport);
+    }
+
     private sealed class TestVolumeProvider : IStorageVolumeProvider
     {
         private readonly MountedVolumeInfo _volume;
 
-        public TestVolumeProvider(string root)
+        public TestVolumeProvider(string root, bool hasPhysicalDeviceIdentity = true)
         {
             var normalized = PathSafety.Normalize(root);
             _volume = new MountedVolumeInfo(
@@ -78,7 +103,7 @@ public sealed class WorkflowUiStateTests
                 "test-volume",
                 IsRemovable: true,
                 IsSystem: false,
-                PhysicalDeviceFingerprint: "test-device");
+                PhysicalDeviceFingerprint: hasPhysicalDeviceIdentity ? "test-device" : null);
         }
 
         public StringComparison PathComparison => OperatingSystem.IsWindows()
