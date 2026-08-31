@@ -41,7 +41,7 @@ public sealed class PendingCardQueueTests
         Assert.IsNotNull(firstResult);
         Assert.IsTrue(firstResult.IsNoSupportedMedia);
         Assert.AreEqual(PathSafety.Normalize(validCard), viewModel.SelectedSdPath);
-        Assert.AreEqual("RAW:0 / JPG:1 / MP4:0", viewModel.CountLabel);
+        Assert.AreEqual("RAW:0 / JPG:1 / 動画:0", viewModel.CountLabel);
         Assert.AreEqual("取り込み準備完了", viewModel.ProgressLabel);
         Assert.AreEqual(0, viewModel.PendingSdCount);
     }
