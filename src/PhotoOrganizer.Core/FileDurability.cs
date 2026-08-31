@@ -29,7 +29,6 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
     private const uint MoveFileWriteThrough = 0x00000008;
     private const int FFullFsync = 51;
     private const int OpenReadOnly = 0;
-    private const int OpenReadWrite = 2;
     private const int InterruptedSystemCall = 4;
 
     public FinalizeFileResult FinalizeNewFile(string temporaryPath, string finalPath, DateTime lastWriteUtc)
@@ -185,9 +184,10 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
 
     private static DurabilityResult FullFsyncMacFile(string filePath)
     {
-        // Use a writable descriptor for a write durability operation. If the
-        // destination has become read-only, fail closed rather than approving SD reuse.
-        var descriptor = OpenMac(filePath, OpenReadWrite);
+        // F_FULLFSYNC only needs a descriptor for the finalized file. Opening it
+        // read-only also supports immutable or permission-read-only verified backups
+        // without changing their bytes, permissions, or flags.
+        var descriptor = OpenMac(filePath, OpenReadOnly);
         if (descriptor < 0)
         {
             var error = Marshal.GetLastPInvokeError();
