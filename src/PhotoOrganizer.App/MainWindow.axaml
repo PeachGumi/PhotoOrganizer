@@ -20,10 +20,8 @@
     <SolidColorBrush x:Key="BorderBrush">#2B3939</SolidColorBrush>
     <SolidColorBrush x:Key="AccentBrush">#70B8A5</SolidColorBrush>
     <SolidColorBrush x:Key="AccentStrongBrush">#8ACDBB</SolidColorBrush>
-    <SolidColorBrush x:Key="AccentSurfaceBrush">#19302D</SolidColorBrush>
     <SolidColorBrush x:Key="WarningBrush">#D7AE73</SolidColorBrush>
     <SolidColorBrush x:Key="WarningSurfaceBrush">#30281E</SolidColorBrush>
-    <SolidColorBrush x:Key="SuccessSurfaceBrush">#1B2C22</SolidColorBrush>
   </Window.Resources>
 
   <Window.Styles>
@@ -96,7 +94,6 @@
                   VerticalAlignment="Center">
         <Button Classes="compact" Content="設定"
                 Click="Settings_Click"
-                IsEnabled="{Binding !IsBusy}"
                 AutomationProperties.Name="設定を開く" />
         <Button Classes="compact" Content="ログ"
                 Click="Diagnostics_Click"
@@ -105,12 +102,10 @@
     </Grid>
 
     <Border Grid.Row="1" Classes="surface" Padding="10,7"
-            Background="{StaticResource AccentSurfaceBrush}"
-            BorderBrush="#31544E"
             AutomationProperties.Name="現在の状態">
       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="9">
         <Border Width="8" Height="8" CornerRadius="4"
-                Background="{StaticResource AccentStrongBrush}"
+                Background="{StaticResource MutedForeground}"
                 VerticalAlignment="Center" />
         <TextBlock Grid.Column="1" Text="{Binding WorkflowHeadline}"
                    FontSize="14" FontWeight="SemiBold"
@@ -148,15 +143,16 @@
                       AutomationProperties.Name="SDカードを選択" />
             </Grid>
 
-            <Grid Margin="100,-3,0,0" ColumnDefinitions="Auto,*" ColumnSpacing="10">
-              <TextBlock IsVisible="{Binding ShowMediaSummary}"
-                         Text="{Binding CountLabel}"
-                         FontSize="11" FontWeight="SemiBold"
-                         Foreground="{StaticResource AccentStrongBrush}" />
-              <TextBlock Grid.Column="1"
-                         IsVisible="{Binding HasPendingCards}"
-                         Text="{Binding PendingSdText}"
-                         Classes="caption" />
+            <Grid ColumnDefinitions="92,*" ColumnSpacing="8">
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                <TextBlock IsVisible="{Binding ShowMediaSummary}"
+                           Text="{Binding CountLabel}"
+                           FontSize="11" FontWeight="SemiBold"
+                           Foreground="{StaticResource AccentStrongBrush}" />
+                <TextBlock IsVisible="{Binding HasPendingCards}"
+                           Text="{Binding PendingSdText}"
+                           Classes="caption" />
+              </StackPanel>
             </Grid>
 
             <Border Height="1" Background="{StaticResource BorderBrush}" />
@@ -216,6 +212,7 @@
                           AutomationProperties.Name="取り込みをキャンセル" />
                   <Button Classes="primary" Content="取り込み開始"
                           Click="Import_Click"
+                          IsVisible="{Binding !IsSafeToReuseCurrentCard}"
                           IsEnabled="{Binding CanImport}"
                           AutomationProperties.Name="取り込みを開始" />
                 </StackPanel>
@@ -263,14 +260,10 @@
 
         <Border IsVisible="{Binding HasCompletedImport}"
                 Classes="surface" Padding="12"
-                Background="{StaticResource SuccessSurfaceBrush}"
-                BorderBrush="#365C42"
-                AutomationProperties.Name="直前の取り込み結果">
+                AutomationProperties.Name="直前の取り込み先">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel Spacing="3">
-              <TextBlock Text="取り込み完了" FontSize="14" FontWeight="SemiBold" />
-              <TextBlock Text="{Binding CompletionSummary}"
-                         FontSize="11" TextWrapping="Wrap" />
+              <TextBlock Text="取り込み先" FontSize="13" FontWeight="SemiBold" />
               <TextBlock Text="{Binding LastImportBasePath}"
                          FontFamily="monospace" FontSize="11"
                          Foreground="{StaticResource MutedForeground}"
