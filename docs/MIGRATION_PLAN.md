@@ -88,6 +88,12 @@ The production release workflow is all-or-nothing: unsigned or one-platform-only
 
 ## Phase 6 — migration acceptance and legacy retirement
 
+Owner-directed exception (2026-09-01): because this is a personal-use product,
+the owner accepted archiving both legacy repositories before full Windows
+production acceptance. Windows issues will be handled in this unified
+repository as encountered. The legacy histories and `legacy-final` tags were
+preserved on GitHub, Forgejo, and local bundles.
+
 Before marking the legacy repositories read-only:
 
 - all shared Core safety tests pass on Windows and macOS;

@@ -121,6 +121,14 @@ After every applicable check above passes:
 
 ## Retirement gate for legacy repositories
 
+> **Owner decision (2026-09-01):** This product is for personal use. The owner
+> accepted retiring the legacy repositories before completing the Windows
+> production-release checklist and will address Windows-specific problems as
+> they arise. `PhotoOrganizer-win` and `PhotoOrganizer-mac` are archived on
+> GitHub and Forgejo; their `legacy-final` tags and histories remain available.
+> This exception does not mark the unchecked release-acceptance items below as
+> passed.
+
 Do not archive or label `PhotoOrganizer-win` / `PhotoOrganizer-mac` as superseded for production until:
 
 - [ ] all applicable acceptance checks above are recorded for a signed unified candidate;
