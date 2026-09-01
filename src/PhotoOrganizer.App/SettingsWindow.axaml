@@ -8,7 +8,7 @@
         Width="500" Height="350"
         MinWidth="460" MinHeight="330"
         CanResize="False"
-        WindowStartupLocation="CenterOwner"
+        WindowStartupLocation="CenterScreen"
         RequestedThemeVariant="Dark"
         Background="#101617">
   <Window.Styles>
