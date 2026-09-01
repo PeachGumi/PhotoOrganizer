@@ -129,7 +129,8 @@
 
     <Grid Grid.Row="2" ColumnDefinitions="3*,2*" ColumnSpacing="12">
       <Border Grid.Column="0" Classes="surface" Padding="17">
-        <Grid RowDefinitions="Auto,*,Auto,*,Auto,Auto" RowSpacing="9">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="9"
+              VerticalAlignment="Top">
           <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="10">
             <Border Classes="stepNumber">
               <TextBlock Text="01" FontSize="10" FontWeight="Bold"
