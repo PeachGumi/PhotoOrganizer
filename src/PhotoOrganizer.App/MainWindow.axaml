@@ -172,7 +172,7 @@
 
             <Border Height="1" Background="{StaticResource BorderBrush}" />
 
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+            <StackPanel Spacing="8">
               <StackPanel Spacing="5">
                 <Label Classes="fieldLabel"
                        Target="DestinationTextBox"
@@ -194,7 +194,7 @@
                 </Grid>
               </StackPanel>
 
-              <StackPanel Grid.Column="1" Spacing="5">
+              <StackPanel Spacing="5">
                 <Label Classes="fieldLabel"
                        Target="EventNameTextBox"
                        Content="イベント名" />
@@ -206,7 +206,7 @@
                          AutomationProperties.Name="イベント名"
                          AutomationProperties.IsRequiredForForm="True" />
               </StackPanel>
-            </Grid>
+            </StackPanel>
 
             <Border IsVisible="{Binding HasInputValidationError}"
                     Padding="9,7" CornerRadius="7" BorderThickness="1"
