@@ -80,7 +80,11 @@ public sealed partial class App : Application
 
     private void ShowWindowMenu_Click(object? sender, EventArgs e) => ShowMainWindow();
 
-    private void SettingsMenu_Click(object? sender, EventArgs e)
+    private void SettingsMenu_Click(object? sender, EventArgs e) => ShowSettingsWindow();
+
+    private void DiagnosticsMenu_Click(object? sender, EventArgs e) => ShowDiagnosticsWindow();
+
+    internal void ShowSettingsWindow()
     {
         if (_viewModel is null) return;
         if (_settingsWindow is null)
@@ -91,7 +95,7 @@ public sealed partial class App : Application
         ShowUtilityWindow(_settingsWindow);
     }
 
-    private void DiagnosticsMenu_Click(object? sender, EventArgs e)
+    internal void ShowDiagnosticsWindow()
     {
         if (_viewModel is null) return;
         if (_diagnosticsWindow is null)

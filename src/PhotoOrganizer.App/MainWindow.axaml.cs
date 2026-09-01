@@ -44,6 +44,16 @@ public sealed partial class MainWindow : Window
 
     internal void AllowExplicitClose() => _allowExplicitClose = true;
 
+    private void Settings_Click(object? sender, RoutedEventArgs e)
+    {
+        if (Application.Current is App app) app.ShowSettingsWindow();
+    }
+
+    private void Diagnostics_Click(object? sender, RoutedEventArgs e)
+    {
+        if (Application.Current is App app) app.ShowDiagnosticsWindow();
+    }
+
     private async void SelectDestination_Click(object? sender, RoutedEventArgs e)
     {
         try
@@ -162,7 +172,6 @@ public sealed partial class MainWindow : Window
             ReportUiFailure("SDカード取り出し", exception);
         }
     }
-
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
