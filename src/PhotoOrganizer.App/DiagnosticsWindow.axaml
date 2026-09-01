@@ -12,7 +12,8 @@
         Background="#101617">
   <Grid Margin="14" RowDefinitions="Auto,*" RowSpacing="9">
     <StackPanel Spacing="1">
-      <TextBlock Text="処理ログ" FontSize="17" FontWeight="SemiBold" Foreground="#EEF3F2" />
+      <TextBlock Text="処理ログ" FontSize="17" FontWeight="SemiBold" Foreground="#EEF3F2"
+                 AutomationProperties.HeadingLevel="1" />
       <TextBlock Text="SDカードの検出・取り込み・検証の記録"
                  FontSize="11" Foreground="#7F8D8A" />
     </StackPanel>
