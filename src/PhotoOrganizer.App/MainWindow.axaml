@@ -104,7 +104,7 @@
       </StackPanel>
     </Grid>
 
-    <Border Grid.Row="1" Classes="surface" Padding="10,8"
+    <Border Grid.Row="1" Classes="surface" Padding="10,7"
             Background="{StaticResource AccentSurfaceBrush}"
             BorderBrush="#31544E"
             AutomationProperties.Name="現在の状態">
@@ -112,13 +112,9 @@
         <Border Width="8" Height="8" CornerRadius="4"
                 Background="{StaticResource AccentStrongBrush}"
                 VerticalAlignment="Center" />
-        <StackPanel Grid.Column="1" Spacing="1">
-          <TextBlock Text="{Binding WorkflowHeadline}"
-                     FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
-          <TextBlock Text="{Binding WorkflowDetail}"
-                     Classes="caption" Foreground="{StaticResource MutedForeground}"
-                     TextWrapping="Wrap" />
-        </StackPanel>
+        <TextBlock Grid.Column="1" Text="{Binding WorkflowHeadline}"
+                   FontSize="14" FontWeight="SemiBold"
+                   TextWrapping="Wrap" VerticalAlignment="Center" />
       </Grid>
     </Border>
 
@@ -131,7 +127,7 @@
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
               <TextBlock Text="取り込み" Classes="sectionTitle" />
               <TextBlock Grid.Column="1"
-                         Text="JPG/JPEG・RAW・MOV/MP4"
+                         Text="JPG/JPEG・設定済みRAW・MOV/MP4"
                          Classes="caption"
                          VerticalAlignment="Center" />
             </Grid>
