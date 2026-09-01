@@ -257,8 +257,7 @@
                            Height="6"
                            AutomationProperties.Name="取り込み進捗" />
               <TextBlock Text="{Binding ProgressLabel}"
-                         Classes="caption" TextWrapping="Wrap"
-                         AutomationProperties.LiveSetting="Polite" />
+                         Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
           </StackPanel>
         </Border>
