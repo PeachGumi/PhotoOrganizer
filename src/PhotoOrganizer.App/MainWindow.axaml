@@ -49,6 +49,12 @@
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{StaticResource MutedForeground}" />
     </Style>
+    <Style Selector="Label.fieldLabel">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource MutedForeground}" />
+      <Setter Property="Padding" Value="0" />
+    </Style>
     <Style Selector="TextBlock.caption">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="Foreground" Value="{StaticResource SubtleForeground}" />
@@ -94,9 +100,11 @@
                   VerticalAlignment="Center">
         <Button Classes="compact" Content="設定"
                 Click="Settings_Click"
+                TabIndex="20"
                 AutomationProperties.Name="設定を開く" />
         <Button Classes="compact" Content="ログ"
                 Click="Diagnostics_Click"
+                TabIndex="21"
                 AutomationProperties.Name="処理ログを開く" />
       </StackPanel>
     </Grid>
@@ -128,8 +136,10 @@
             </Grid>
 
             <Grid ColumnDefinitions="92,*,Auto" ColumnSpacing="8">
-              <TextBlock Text="SDカード" Classes="label"
-                         VerticalAlignment="Center" />
+              <Label Classes="fieldLabel"
+                     Target="SdSelectButton"
+                     Content="SDカード"
+                     VerticalAlignment="Center" />
               <Border Grid.Column="1" Classes="soft" Padding="9,7">
                 <TextBlock Text="{Binding SelectedSdDisplay}"
                            TextWrapping="NoWrap"
@@ -137,9 +147,11 @@
                            ToolTip.Tip="{Binding SelectedSdDisplay}"
                            AutomationProperties.Name="選択中のSDカード" />
               </Border>
-              <Button Grid.Column="2" Content="選択…"
+              <Button x:Name="SdSelectButton"
+                      Grid.Column="2" Content="選択…"
                       Click="SelectSd_Click"
                       IsEnabled="{Binding !IsBusy}"
+                      TabIndex="0"
                       AutomationProperties.Name="SDカードを選択" />
             </Grid>
 
@@ -159,25 +171,34 @@
 
             <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
               <StackPanel Spacing="5">
-                <TextBlock Text="保存先" Classes="label" />
+                <Label Classes="fieldLabel"
+                       Target="DestinationTextBox"
+                       Content="保存先" />
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                  <TextBox Text="{Binding DestinationPath, Mode=TwoWay}"
+                  <TextBox x:Name="DestinationTextBox"
+                           Text="{Binding DestinationPath, Mode=TwoWay}"
                            IsEnabled="{Binding !IsBusy}"
                            PlaceholderText="写真ライブラリの保存先"
                            LostFocus="Destination_LostFocus"
+                           TabIndex="1"
                            AutomationProperties.Name="写真の保存先" />
                   <Button Grid.Column="1" Classes="compact" Content="選択…"
                           Click="SelectDestination_Click"
                           IsEnabled="{Binding !IsBusy}"
+                          TabIndex="2"
                           AutomationProperties.Name="写真の保存先を選択" />
                 </Grid>
               </StackPanel>
 
               <StackPanel Grid.Column="1" Spacing="5">
-                <TextBlock Text="イベント名" Classes="label" />
-                <TextBox Text="{Binding EventName, Mode=TwoWay}"
+                <Label Classes="fieldLabel"
+                       Target="EventNameTextBox"
+                       Content="イベント名" />
+                <TextBox x:Name="EventNameTextBox"
+                         Text="{Binding EventName, Mode=TwoWay}"
                          IsEnabled="{Binding !IsBusy}"
                          PlaceholderText="例: 京都旅行"
+                         TabIndex="3"
                          AutomationProperties.Name="イベント名" />
               </StackPanel>
             </Grid>
@@ -209,11 +230,13 @@
                           Click="Cancel_Click"
                           IsVisible="{Binding CanCancel}"
                           IsEnabled="{Binding CanCancel}"
+                          TabIndex="5"
                           AutomationProperties.Name="取り込みをキャンセル" />
                   <Button Classes="primary" Content="取り込み開始"
                           Click="Import_Click"
                           IsVisible="{Binding !IsSafeToReuseCurrentCard}"
                           IsEnabled="{Binding CanImport}"
+                          TabIndex="4"
                           AutomationProperties.Name="取り込みを開始" />
                 </StackPanel>
               </Grid>
@@ -253,6 +276,7 @@
                     Content="安全に取り出す"
                     Click="EjectSd_Click"
                     IsEnabled="{Binding CanEjectSelectedSd}"
+                    TabIndex="6"
                     VerticalAlignment="Top"
                     AutomationProperties.Name="SDカードを安全に取り出す" />
           </Grid>
@@ -274,6 +298,7 @@
             <Button Grid.Column="1" Content="保存先を開く"
                     Click="OpenDestination_Click"
                     IsEnabled="{Binding !IsBusy}"
+                    TabIndex="7"
                     VerticalAlignment="Center"
                     AutomationProperties.Name="直前の取り込み先を開く" />
           </Grid>
