@@ -7,7 +7,7 @@
         Icon="/Assets/photo-organizer-icon.ico"
         Width="760" Height="450"
         MinWidth="540" MinHeight="320"
-        WindowStartupLocation="CenterOwner"
+        WindowStartupLocation="CenterScreen"
         RequestedThemeVariant="Dark"
         Background="#101617">
   <Grid Margin="14" RowDefinitions="Auto,*" RowSpacing="9">
