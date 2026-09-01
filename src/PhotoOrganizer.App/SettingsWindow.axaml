@@ -23,6 +23,11 @@
       <Setter Property="FontSize" Value="11" />
       <Setter Property="Foreground" Value="#7F8D8A" />
     </Style>
+    <Style Selector="Label.fieldLabel">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="#7F8D8A" />
+      <Setter Property="Padding" Value="0" />
+    </Style>
     <Style Selector="Border.surface">
       <Setter Property="Background" Value="#182022" />
       <Setter Property="BorderBrush" Value="#2B3939" />
@@ -47,10 +52,14 @@
       <StackPanel Spacing="11">
         <StackPanel Spacing="5">
           <TextBlock Text="取り込み対象" Classes="section" />
-          <TextBlock Text="追加するRAW拡張子" Classes="caption" />
-          <TextBox Text="{Binding RawExtensionsText, Mode=TwoWay}"
+          <Label Classes="fieldLabel"
+                 Target="RawExtensionsTextBox"
+                 Content="追加するRAW拡張子" />
+          <TextBox x:Name="RawExtensionsTextBox"
+                   Text="{Binding RawExtensionsText, Mode=TwoWay}"
                    IsEnabled="{Binding !IsBusy}"
                    PlaceholderText=".arw, .cr3, .nef, ..."
+                   TabIndex="0"
                    AutomationProperties.Name="追加するRAW拡張子" />
           <TextBlock Text="JPG/JPEG・MOV/MP4は常に対象です。RAWだけ追加指定します。"
                      Classes="caption" TextWrapping="Wrap" />
@@ -62,9 +71,11 @@
           <TextBlock Text="起動" Classes="section" />
           <CheckBox Content="ログイン時に自動起動"
                     IsChecked="{Binding AutoStart, Mode=TwoWay}"
-                    IsEnabled="{Binding AutoStartSupported}" />
+                    IsEnabled="{Binding AutoStartSupported}"
+                    TabIndex="1" />
           <CheckBox x:Name="StartInBackgroundCheckBox"
-                    Content="起動時はメニューバーに常駐" />
+                    Content="起動時はメニューバーに常駐"
+                    TabIndex="2" />
           <TextBlock x:Name="BackgroundSettingStatus"
                      Margin="24,-1,0,0"
                      Classes="caption" TextWrapping="Wrap" />
