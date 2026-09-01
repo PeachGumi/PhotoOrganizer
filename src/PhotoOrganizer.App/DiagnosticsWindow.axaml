@@ -3,28 +3,28 @@
         xmlns:vm="using:PhotoOrganizer.App"
         x:Class="PhotoOrganizer.App.DiagnosticsWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="Photo Organizer 詳細ログ"
+        Title="Photo Organizer 処理ログ"
         Icon="/Assets/photo-organizer-icon.ico"
-        Width="720" Height="430"
-        MinWidth="520" MinHeight="300"
-        WindowStartupLocation="CenterScreen"
+        Width="760" Height="450"
+        MinWidth="540" MinHeight="320"
+        WindowStartupLocation="CenterOwner"
         RequestedThemeVariant="Dark"
-        Background="#151B1C">
-  <Grid Margin="18" RowDefinitions="Auto,*" RowSpacing="10">
-    <StackPanel Spacing="2">
-      <TextBlock Text="詳細ログ" FontSize="18" FontWeight="SemiBold" Foreground="#EEF3F2" />
-      <TextBlock Text="SDカードの検出・取り込み・検証結果"
-                 FontSize="11" Foreground="#81918E" />
+        Background="#101617">
+  <Grid Margin="14" RowDefinitions="Auto,*" RowSpacing="9">
+    <StackPanel Spacing="1">
+      <TextBlock Text="処理ログ" FontSize="17" FontWeight="SemiBold" Foreground="#EEF3F2" />
+      <TextBlock Text="SDカードの検出・取り込み・検証の記録"
+                 FontSize="11" Foreground="#7F8D8A" />
     </StackPanel>
-    <Border Grid.Row="1" Background="#101617" BorderBrush="#2B3939"
-            BorderThickness="1" CornerRadius="9" Padding="7">
+    <Border Grid.Row="1" Background="#131A1C" BorderBrush="#2B3939"
+            BorderThickness="1" CornerRadius="8" Padding="5">
       <TextBox Text="{Binding LogText}" IsReadOnly="True" AcceptsReturn="True"
-               Background="Transparent" BorderThickness="0" Padding="9,7"
+               Background="Transparent" BorderThickness="0" Padding="8,6"
                TextWrapping="NoWrap"
                ScrollViewer.VerticalScrollBarVisibility="Auto"
                ScrollViewer.HorizontalScrollBarVisibility="Auto"
                FontFamily="monospace" FontSize="11"
-               AutomationProperties.Name="詳細ログ" />
+               AutomationProperties.Name="処理ログ" />
     </Border>
   </Grid>
 </Window>
