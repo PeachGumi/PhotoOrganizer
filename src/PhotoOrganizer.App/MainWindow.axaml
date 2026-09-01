@@ -92,7 +92,8 @@
              Width="34" Height="34"
              VerticalAlignment="Center" />
       <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
-        <TextBlock Text="Photo Organizer" FontSize="18" FontWeight="SemiBold" />
+        <TextBlock Text="Photo Organizer" FontSize="18" FontWeight="SemiBold"
+                   AutomationProperties.HeadingLevel="1" />
         <TextBlock Text="SDカードから写真・動画を安全に取り込み"
                    Classes="caption" />
       </StackPanel>
@@ -117,7 +118,8 @@
                 VerticalAlignment="Center" />
         <TextBlock Grid.Column="1" Text="{Binding WorkflowHeadline}"
                    FontSize="14" FontWeight="SemiBold"
-                   TextWrapping="Wrap" VerticalAlignment="Center" />
+                   TextWrapping="Wrap" VerticalAlignment="Center"
+                   AutomationProperties.LiveSetting="Polite" />
       </Grid>
     </Border>
 
@@ -128,7 +130,8 @@
         <Border Classes="surface" Padding="13">
           <StackPanel Spacing="10">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-              <TextBlock Text="取り込み" Classes="sectionTitle" />
+              <TextBlock Text="取り込み" Classes="sectionTitle"
+                         AutomationProperties.HeadingLevel="2" />
               <TextBlock Grid.Column="1"
                          Text="JPG/JPEG・設定済みRAW・MOV/MP4"
                          Classes="caption"
@@ -181,7 +184,8 @@
                            PlaceholderText="写真ライブラリの保存先"
                            LostFocus="Destination_LostFocus"
                            TabIndex="1"
-                           AutomationProperties.Name="写真の保存先" />
+                           AutomationProperties.Name="写真の保存先"
+                           AutomationProperties.IsRequiredForForm="True" />
                   <Button Grid.Column="1" Classes="compact" Content="選択…"
                           Click="SelectDestination_Click"
                           IsEnabled="{Binding !IsBusy}"
@@ -199,7 +203,8 @@
                          IsEnabled="{Binding !IsBusy}"
                          PlaceholderText="例: 京都旅行"
                          TabIndex="3"
-                         AutomationProperties.Name="イベント名" />
+                         AutomationProperties.Name="イベント名"
+                         AutomationProperties.IsRequiredForForm="True" />
               </StackPanel>
             </Grid>
 
@@ -211,7 +216,8 @@
               <TextBlock Text="{Binding InputValidationMessage}"
                          Foreground="{StaticResource WarningBrush}"
                          FontSize="11" TextWrapping="Wrap"
-                         ToolTip.Tip="{Binding InputValidationMessage}" />
+                         ToolTip.Tip="{Binding InputValidationMessage}"
+                         AutomationProperties.LiveSetting="Assertive" />
             </Border>
 
             <Border Classes="soft" Padding="10">
@@ -230,12 +236,14 @@
                           Click="Cancel_Click"
                           IsVisible="{Binding CanCancel}"
                           IsEnabled="{Binding CanCancel}"
+                          IsCancel="True"
                           TabIndex="5"
                           AutomationProperties.Name="取り込みをキャンセル" />
                   <Button Classes="primary" Content="取り込み開始"
                           Click="Import_Click"
                           IsVisible="{Binding !IsSafeToReuseCurrentCard}"
                           IsEnabled="{Binding CanImport}"
+                          IsDefault="True"
                           TabIndex="4"
                           AutomationProperties.Name="取り込みを開始" />
                 </StackPanel>
@@ -249,7 +257,8 @@
                            Height="6"
                            AutomationProperties.Name="取り込み進捗" />
               <TextBlock Text="{Binding ProgressLabel}"
-                         Classes="caption" TextWrapping="Wrap" />
+                         Classes="caption" TextWrapping="Wrap"
+                         AutomationProperties.LiveSetting="Polite" />
             </StackPanel>
           </StackPanel>
         </Border>
@@ -261,11 +270,13 @@
                 AutomationProperties.Name="SDカード再利用の安全状態">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel Spacing="3">
-              <TextBlock Text="SDカードの安全確認" Classes="label" />
+              <TextBlock Text="SDカードの安全確認" Classes="label"
+                         AutomationProperties.HeadingLevel="2" />
               <TextBlock Text="{Binding SafetyHeadline}"
                          FontSize="14" FontWeight="SemiBold"
                          Foreground="{Binding SafetyBrush}"
-                         TextWrapping="Wrap" />
+                         TextWrapping="Wrap"
+                         AutomationProperties.LiveSetting="Assertive" />
               <TextBlock Text="{Binding SafetyDetail}"
                          FontSize="11" TextWrapping="Wrap" />
               <TextBlock Text="再利用可否は対象ファイルの照合結果です。バックアップの有無とは別です。"
@@ -287,7 +298,8 @@
                 AutomationProperties.Name="直前の取り込み先">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel Spacing="3">
-              <TextBlock Text="取り込み先" FontSize="13" FontWeight="SemiBold" />
+              <TextBlock Text="取り込み先" FontSize="13" FontWeight="SemiBold"
+                         AutomationProperties.HeadingLevel="2" />
               <TextBlock Text="{Binding LastImportBasePath}"
                          FontFamily="monospace" FontSize="11"
                          Foreground="{StaticResource MutedForeground}"
