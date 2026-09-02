@@ -21,6 +21,7 @@ public sealed class WorkflowUiStateTests
         Assert.IsFalse(viewModel.HasSelectedSd);
         Assert.AreEqual("未選択", viewModel.SelectedSdDisplay);
         Assert.AreEqual("SDカードを選択してください", viewModel.WorkflowHeadline);
+        StringAssert.Contains(viewModel.WorkflowDetail, "SDカードを挿すと自動検出");
     }
 
     [TestMethod]
@@ -68,6 +69,7 @@ public sealed class WorkflowUiStateTests
         Assert.IsTrue(viewModel.ShowMediaSummary);
         StringAssert.Contains(viewModel.SafetyHeadline, "未検証");
         Assert.AreNotEqual("SDカードを選択してください", viewModel.WorkflowHeadline);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(viewModel.WorkflowDetail));
     }
 
     [TestMethod]
