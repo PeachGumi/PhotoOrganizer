@@ -150,6 +150,8 @@ public sealed class SafetyInvariantContractTests
     private static bool IsAllowedDelete(string relative, string line) =>
         (relative == "src/PhotoOrganizer.Core/SafeCopyService.cs"
          && line.Contains("File.Delete(temporaryPathForCleanup)", StringComparison.Ordinal))
+        || (relative == "src/PhotoOrganizer.Core/SafeCopyService.cs"
+            && line.Contains("File.Delete(temporaryPath)", StringComparison.Ordinal))
         || (relative == "src/PhotoOrganizer.App/JsonSettingsFile.cs"
             && line.Contains("File.Delete(temporary)", StringComparison.Ordinal))
         || (relative == "src/PhotoOrganizer.App/StartupRegistrationService.cs"

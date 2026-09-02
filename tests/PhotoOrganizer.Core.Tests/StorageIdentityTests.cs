@@ -40,6 +40,69 @@ public sealed class StorageIdentityTests
     }
 
     [TestMethod]
+    public void MatchesPair_UsesOneMountedSnapshotForBothPaths()
+    {
+        using var temp = new TempDirectory();
+        var sourceRoot = Directory.CreateDirectory(Path.Combine(temp.Path, "source")).FullName;
+        var destinationRoot = Directory.CreateDirectory(Path.Combine(temp.Path, "destination")).FullName;
+        var provider = new PairProvider(sourceRoot, destinationRoot);
+        var tracker = new StorageSessionTracker(provider);
+        var sourceIdentity = tracker.Capture(sourceRoot)!;
+        var destinationIdentity = tracker.Capture(destinationRoot)!;
+        var callsBeforePair = provider.GetMountedVolumesCallCount;
+
+        Assert.IsTrue(tracker.MatchesPair(
+            sourceIdentity,
+            sourceRoot,
+            destinationIdentity,
+            destinationRoot));
+        Assert.AreEqual(callsBeforePair + 1, provider.GetMountedVolumesCallCount);
+        Assert.AreEqual(0, provider.ResolveVolumeForPathCallCount);
+    }
+
+    [TestMethod]
+    public void MatchesPair_ReturnsFalseWhenOneVolumeIsReplaced()
+    {
+        using var temp = new TempDirectory();
+        var sourceRoot = Directory.CreateDirectory(Path.Combine(temp.Path, "source")).FullName;
+        var destinationRoot = Directory.CreateDirectory(Path.Combine(temp.Path, "destination")).FullName;
+        var provider = new PairProvider(sourceRoot, destinationRoot);
+        var tracker = new StorageSessionTracker(provider);
+        var sourceIdentity = tracker.Capture(sourceRoot)!;
+        var destinationIdentity = tracker.Capture(destinationRoot)!;
+        var callsBeforePair = provider.GetMountedVolumesCallCount;
+
+        provider.DestinationFingerprint = "destination-replacement";
+
+        Assert.IsFalse(tracker.MatchesPair(
+            sourceIdentity,
+            sourceRoot,
+            destinationIdentity,
+            destinationRoot));
+        Assert.AreEqual(callsBeforePair + 1, provider.GetMountedVolumesCallCount);
+    }
+
+    [TestMethod]
+    public void MatchesPair_ReturnsFalseForInvalidPathWithoutResolvingIt()
+    {
+        using var temp = new TempDirectory();
+        var sourceRoot = Directory.CreateDirectory(Path.Combine(temp.Path, "source")).FullName;
+        var destinationRoot = Directory.CreateDirectory(Path.Combine(temp.Path, "destination")).FullName;
+        var provider = new PairProvider(sourceRoot, destinationRoot);
+        var tracker = new StorageSessionTracker(provider);
+        var sourceIdentity = tracker.Capture(sourceRoot)!;
+        var destinationIdentity = tracker.Capture(destinationRoot)!;
+        var callsBeforePair = provider.GetMountedVolumesCallCount;
+
+        Assert.IsFalse(tracker.MatchesPair(
+            sourceIdentity,
+            string.Empty,
+            destinationIdentity,
+            destinationRoot));
+        Assert.AreEqual(callsBeforePair, provider.GetMountedVolumesCallCount);
+    }
+
+    [TestMethod]
     public void RemovalAndReinsert_InvalidatesOldSessionEvenForSameFingerprint()
     {
         using var temp = new TempDirectory();
@@ -199,6 +262,44 @@ public sealed class StorageIdentityTests
                 _isRemovable,
                 _isSystem,
                 PhysicalDeviceFingerprint);
+        }
+    }
+
+    private sealed class PairProvider : IStorageVolumeProvider
+    {
+        private readonly string _sourceRoot;
+        private readonly string _destinationRoot;
+
+        public PairProvider(string sourceRoot, string destinationRoot)
+        {
+            _sourceRoot = PathSafety.Normalize(sourceRoot);
+            _destinationRoot = PathSafety.Normalize(destinationRoot);
+        }
+
+        public string SourceFingerprint { get; set; } = "source-volume";
+        public string DestinationFingerprint { get; set; } = "destination-volume";
+        public int GetMountedVolumesCallCount { get; private set; }
+        public int ResolveVolumeForPathCallCount { get; private set; }
+        public StringComparison PathComparison => OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        public IReadOnlyList<MountedVolumeInfo> GetMountedVolumes()
+        {
+            GetMountedVolumesCallCount++;
+            return [
+                new MountedVolumeInfo(_sourceRoot, SourceFingerprint, true, false, "source-device"),
+                new MountedVolumeInfo(_destinationRoot, DestinationFingerprint, false, false, "destination-device")
+            ];
+        }
+
+        public MountedVolumeInfo? ResolveVolumeForPath(string path)
+        {
+            ResolveVolumeForPathCallCount++;
+            return GetMountedVolumes()
+                .Where(volume => PathSafety.IsSameOrDescendant(path, volume.RootPath, PathComparison))
+                .OrderByDescending(volume => volume.RootPath.Length)
+                .FirstOrDefault();
         }
     }
 

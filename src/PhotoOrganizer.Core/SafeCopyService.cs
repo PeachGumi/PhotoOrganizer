@@ -1,3 +1,6 @@
+using System.Buffers;
+using System.Security.Cryptography;
+
 namespace PhotoOrganizer.Core;
 
 public enum CopyStatus
@@ -11,7 +14,7 @@ public sealed record CopyResult(CopyStatus Status, string? DestinationPath, stri
 
 public sealed class SafeCopyService
 {
-    private const int BufferSize = 4 * 1024 * 1024;
+    private const int BufferSize = 8 * 1024 * 1024;
     private readonly IFileDurabilityService _durability;
 
     public SafeCopyService(IFileDurabilityService? durability = null)
@@ -55,43 +58,32 @@ public sealed class SafeCopyService
 
             var sourceSize = sourceInfo.Length;
             var sourceLastWriteUtc = sourceInfo.LastWriteTimeUtc;
-            var sourceHashBefore = await Hashing.Sha256Async(sourcePath, cancellationToken).ConfigureAwait(false);
-
-            var resolution = await ResolveDestinationAsync(
-                sourcePath,
-                destinationDirectory,
-                sourceSize,
-                sourceHashBefore,
-                cancellationToken).ConfigureAwait(false);
-
-            if (resolution.IsDuplicate)
-            {
-                return VerifyExistingDuplicate(resolution.Path);
-            }
-
             var transactionTemporaryPath = Path.Combine(destinationDirectory, $".partial-{Guid.NewGuid():N}");
+            string sourceHashDuringCopy;
 
             await using (var source = new FileStream(
                              sourcePath,
                              FileMode.Open,
                              FileAccess.Read,
                              FileShare.Read,
-                             BufferSize,
+                             bufferSize: 1,
                              FileOptions.Asynchronous | FileOptions.SequentialScan))
             await using (var destination = new FileStream(
                              transactionTemporaryPath,
                              FileMode.CreateNew,
                              FileAccess.Write,
                              FileShare.None,
-                             BufferSize,
-                             FileOptions.Asynchronous | FileOptions.WriteThrough))
+                             bufferSize: 1,
+                             FileOptions.Asynchronous))
             {
                 // Cleanup ownership starts only after CreateNew succeeds. If another
                 // process already owns the randomly selected name, its file must never
                 // be deleted by this transaction's finally block.
                 temporaryPathForCleanup = transactionTemporaryPath;
-                await source.CopyToAsync(destination, BufferSize, cancellationToken).ConfigureAwait(false);
-                await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+                sourceHashDuringCopy = await CopyAndHashAsync(
+                    source,
+                    destination,
+                    cancellationToken).ConfigureAwait(false);
                 destination.Flush(flushToDisk: true);
             }
 
@@ -101,8 +93,10 @@ public sealed class SafeCopyService
                 return new CopyResult(CopyStatus.Failed, null, "Temporary copy size verification failed.");
             }
 
-            var temporaryHash = await Hashing.Sha256Async(transactionTemporaryPath, cancellationToken).ConfigureAwait(false);
-            if (!string.Equals(sourceHashBefore, temporaryHash, StringComparison.Ordinal))
+            var temporaryHash = await Hashing
+                .Sha256Async(transactionTemporaryPath, cancellationToken)
+                .ConfigureAwait(false);
+            if (!string.Equals(sourceHashDuringCopy, temporaryHash, StringComparison.Ordinal))
             {
                 return new CopyResult(CopyStatus.Failed, null, "Temporary copy SHA-256 verification failed.");
             }
@@ -113,8 +107,10 @@ public sealed class SafeCopyService
                 return new CopyResult(CopyStatus.Failed, null, "Source media changed while copying.");
             }
 
-            var sourceHashAfter = await Hashing.Sha256Async(sourcePath, cancellationToken).ConfigureAwait(false);
-            if (!string.Equals(sourceHashBefore, sourceHashAfter, StringComparison.Ordinal))
+            var sourceHashAfter = await Hashing
+                .Sha256Async(sourcePath, cancellationToken)
+                .ConfigureAwait(false);
+            if (!string.Equals(sourceHashDuringCopy, sourceHashAfter, StringComparison.Ordinal))
             {
                 return new CopyResult(CopyStatus.Failed, null, "Source media changed while copying.");
             }
@@ -122,6 +118,27 @@ public sealed class SafeCopyService
             if (!PathSafety.TryValidateDirectFilesystemPath(destinationDirectory, out pathError))
             {
                 return new CopyResult(CopyStatus.Failed, null, $"Destination path changed before finalization: {pathError}");
+            }
+
+            // Resolve collisions only after the copy hash and the fresh source
+            // hash have been established. A race can still claim this name before
+            // finalization; the durable no-clobber loop below handles that case.
+            var resolution = await ResolveDestinationAsync(
+                sourcePath,
+                destinationDirectory,
+                sourceSize,
+                sourceHashDuringCopy,
+                cancellationToken).ConfigureAwait(false);
+
+            if (resolution.IsDuplicate)
+            {
+                if (!TryDeleteTemporaryBeforeDuplicate(transactionTemporaryPath, out var cleanupError))
+                {
+                    return new CopyResult(CopyStatus.Failed, null, cleanupError);
+                }
+
+                temporaryPathForCleanup = null;
+                return VerifyExistingDuplicate(resolution.Path);
             }
 
             var finalPath = resolution.Path;
@@ -152,11 +169,17 @@ public sealed class SafeCopyService
                     sourcePath,
                     destinationDirectory,
                     sourceSize,
-                    sourceHashBefore,
+                    sourceHashDuringCopy,
                     cancellationToken).ConfigureAwait(false);
 
                 if (resolution.IsDuplicate)
                 {
+                    if (!TryDeleteTemporaryBeforeDuplicate(transactionTemporaryPath, out var cleanupError))
+                    {
+                        return new CopyResult(CopyStatus.Failed, null, cleanupError);
+                    }
+
+                    temporaryPathForCleanup = null;
                     return VerifyExistingDuplicate(resolution.Path);
                 }
 
@@ -169,8 +192,10 @@ public sealed class SafeCopyService
                 return new CopyResult(CopyStatus.Failed, finalPath, "Final copy size verification failed.");
             }
 
-            var finalHash = await Hashing.Sha256Async(finalPath, cancellationToken).ConfigureAwait(false);
-            if (!string.Equals(sourceHashBefore, finalHash, StringComparison.Ordinal))
+            var finalHash = await Hashing
+                .Sha256Async(finalPath, cancellationToken)
+                .ConfigureAwait(false);
+            if (!string.Equals(sourceHashDuringCopy, finalHash, StringComparison.Ordinal))
             {
                 return new CopyResult(CopyStatus.Failed, finalPath, "Final copy SHA-256 verification failed.");
             }
@@ -198,6 +223,55 @@ public sealed class SafeCopyService
         }
     }
 
+    private static async Task<string> CopyAndHashAsync(
+        FileStream source,
+        FileStream destination,
+        CancellationToken cancellationToken)
+    {
+        byte[]? currentBuffer = null;
+        byte[]? nextBuffer = null;
+
+        try
+        {
+            currentBuffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+            nextBuffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            var current = currentBuffer;
+            var next = nextBuffer;
+            var currentCount = await source
+                .ReadAsync(current.AsMemory(0, BufferSize), cancellationToken)
+                .ConfigureAwait(false);
+
+            while (currentCount > 0)
+            {
+                // Keep the two pooled buffers independent so the next source read,
+                // current destination write, and current CPU hash can overlap without
+                // mutating bytes in flight. The hash is used only after both I/O tasks
+                // succeed.
+                var writeTask = destination
+                    .WriteAsync(current.AsMemory(0, currentCount), cancellationToken)
+                    .AsTask();
+                var readTask = source
+                    .ReadAsync(next.AsMemory(0, BufferSize), cancellationToken)
+                    .AsTask();
+
+                hash.AppendData(current.AsSpan(0, currentCount));
+                await Task.WhenAll(writeTask, readTask).ConfigureAwait(false);
+
+                currentCount = readTask.Result;
+                (current, next) = (next, current);
+            }
+
+            return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        }
+        finally
+        {
+            if (currentBuffer is not null) ArrayPool<byte>.Shared.Return(currentBuffer);
+            if (nextBuffer is not null) ArrayPool<byte>.Shared.Return(nextBuffer);
+        }
+    }
+
     private CopyResult VerifyExistingDuplicate(string path)
     {
         var durability = _durability.EnsureDurable(path);
@@ -207,6 +281,25 @@ public sealed class SafeCopyService
                 CopyStatus.Failed,
                 path,
                 durability.Error ?? "Existing duplicate could not be committed durably.");
+    }
+
+    private static bool TryDeleteTemporaryBeforeDuplicate(string temporaryPath, out string? error)
+    {
+        error = null;
+
+        try
+        {
+            // Duplicate durability may block or fail after this point. Release our
+            // never-finalized temporary before entering that call so a process crash
+            // cannot leave a copy transaction behind for a duplicate-only result.
+            File.Delete(temporaryPath);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            error = $"Temporary copy cleanup failed before duplicate verification: {ex.Message}";
+            return false;
+        }
     }
 
     private static async Task<(string Path, bool IsDuplicate)> ResolveDestinationAsync(

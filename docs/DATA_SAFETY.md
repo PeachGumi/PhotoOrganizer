@@ -40,17 +40,19 @@ Source and destination must resolve to different mounted-volume identities **and
 
 For every new source file:
 
-1. Read source size and SHA-256.
+1. Capture source size and timestamp without modifying the source.
 2. Never delete or overwrite an existing destination file.
-3. If an existing candidate has identical size and SHA-256, treat it as an already-imported duplicate only after that candidate can be durably synchronized.
-4. If a name collides with different bytes, select `_2`, `_3`, and so on.
-5. Copy to an app-created hidden `.partial-*` path.
-6. Flush the temporary destination.
-7. Verify temporary size and SHA-256.
-8. Re-read the source SHA-256 and size to ensure the source did not change during copy.
-9. Move the verified temporary file to an unused final path without overwrite.
+3. Copy to an app-created hidden `.partial-*` path while computing SHA-256 from the exact source bytes read by the copy operation.
+4. Flush the completed temporary destination once with a disk-persistence request; individual writes do not use write-through mode.
+5. Verify temporary size and a freshly read SHA-256 against the copy-time source size and SHA-256.
+6. Re-read the source SHA-256 and size to ensure the source did not change during copy or temporary verification.
+7. If an existing candidate has identical size and SHA-256, treat it as an already-imported duplicate only after that candidate can be durably synchronized.
+8. If a name collides with different bytes, select `_2`, `_3`, and so on.
+9. Move the verified temporary file to an unused final path without overwrite, retrying collision resolution if another writer claims the name.
 10. Set final metadata, then durably commit the finalized file and its directory entry before reporting copy success.
-11. Verify final size and SHA-256 again.
+11. Verify final size and a freshly read SHA-256 again.
+
+Independent copy transactions may run with a small bounded concurrency. Every file still follows the complete ordered transaction above, uses its own random temporary path, and receives an independent no-clobber finalization and durability proof.
 
 Durable commit is platform-specific and fail-closed:
 
@@ -82,6 +84,8 @@ Reuse approval requires all of the following after copy processing:
 - storage identity is checked again after that final consistency scan before approval is displayed.
 
 A SHA-256 match served from operating-system or device caches is not by itself sufficient proof that the camera card can be reformatted. Green approval requires durable destination commit in addition to byte verification.
+
+Different source files may be verified with small bounded concurrency. Within each source proof, the order remains strict: source pre-hash, destination prefilter hash, destination durability synchronization, fresh destination post-durability hash, and finally a fresh source hash. Concurrency never turns a cached hash into reuse approval.
 
 If any condition cannot be proved, the UI must remain blocked/not-verified.
 

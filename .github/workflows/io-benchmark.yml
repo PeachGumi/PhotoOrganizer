@@ -30,7 +30,7 @@ permissions:
 
 jobs:
   benchmark:
-    name: SHA-256 I/O benchmark
+    name: Safe copy and SHA-256 I/O benchmark
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

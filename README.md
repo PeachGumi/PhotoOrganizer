@@ -332,16 +332,18 @@ SDカードの読み取り中にI/Oエラー、権限エラー、メタデータ
 
 新規ファイルは、おおむね次の順序で処理します。
 
-1. コピー元のサイズとSHA-256を取得
+1. コピー元のサイズと更新日時を取得
 2. 保存先と同じフォルダに `.partial-*` を新規作成
-3. コピー元から一時ファイルへコピー
-4. 一時ファイルの書き込みをフラッシュ
-5. 一時ファイルのサイズとSHA-256をコピー元と比較
-6. コピー元をもう一度読み、コピー中に内容が変化していないことを確認
+3. コピー元から一時ファイルへコピーしながら、実際に読んだデータのSHA-256を計算
+4. 一時ファイルの書き込みを1回だけ確実にフラッシュ
+5. 一時ファイルを新しく読み、サイズとSHA-256をコピー時の値と比較
+6. コピー元をもう一度読み、コピー中や一時ファイル検証中に内容が変化していないことを確認
 7. 既存ファイルを上書きしない方法で最終ファイル名へ確定
 8. 最終メタデータを設定
 9. OSごとの方法で保存先への書き込み完了を要求
 10. 最終ファイルをもう一度読み、サイズとSHA-256を確認
+
+複数ファイルはCPU数に応じて最大4件だけ並行処理しますが、ファイルごとの一時ファイル、再読み取り、上書き防止、永続化確認は省略しません。
 
 途中で失敗しても、すでに保存先にあるファイルを削除して帳尻を合わせることはしません。
 
@@ -553,6 +555,8 @@ dotnet test tests/PhotoOrganizer.App.Tests/PhotoOrganizer.App.Tests.csproj -c Re
 dotnet run --project tools/PhotoOrganizer.IoBenchmark/PhotoOrganizer.IoBenchmark.csproj -c Release
 ```
 
+安全コピーの測定条件は `--copy-files=N`、`--copy-size-mib=N`、`--copy-parallelism=N`、ハッシュ処理の並列度は `--hash-parallelism=N` で変更できます。
+
 ローカルでビルドしたものは、正式な署名・公証を通した配布物とは別物です。第三者へ正式配布する場合はリリース用ワークフローを使用してください。
 
 ---
@@ -608,7 +612,7 @@ PhotoOrganizer/
 │  ├─ PhotoOrganizer.Core.Tests/  # 共通安全ロジックの回帰テスト
 │  └─ PhotoOrganizer.App.Tests/   # OS固有処理 / diskutil / startup / storage識別テスト
 ├─ tools/
-│  └─ PhotoOrganizer.IoBenchmark/ # SHA-256 / 保存先検索のI/Oベンチマーク
+│  └─ PhotoOrganizer.IoBenchmark/ # SHA-256 / 保存先検索 / 安全コピー / end-to-end取り込みベンチマーク
 ├─ docs/
 │  ├─ ARCHITECTURE.md
 │  ├─ DATA_SAFETY.md
@@ -636,7 +640,7 @@ Photo Organizer は、1種類のテストだけで安全性を証明しようと
 | `PhotoOrganizer.App.Tests` | Windows / macOSのストレージ識別、`diskutil` plistの解釈、外部プロセスのタイムアウト、自動起動設定の生成、実OS上のボリューム解決 |
 | 配布物のスモークテスト | Windows x64 / ARM64 ZIP、macOS arm64 / x64 DMGの生成・展開 / マウント |
 | CodeQL | C#コードの静的解析 |
-| I/Oベンチマーク | SHA-256計算や保存先検索で読み取り量が悪化していないか確認 |
+| I/Oベンチマーク | SHA-256計算・保存先検索の読み取り量と、検証付き安全コピー／最終確認込み取り込みの実効MiB/sを確認 |
 | リリース受け入れ試験 | 実SDカード、実ストレージ、強制取り外し、ログアウト / ログイン、Gatekeeper / Authenticode、書き込み耐久性 |
 
 ### OS固有処理も、できるだけ単体テストできる形に分ける
@@ -681,7 +685,7 @@ MacDiskutilInfoParser
 - macOS arm64 / x64 DMGのスモークテスト
 - リリースワークフローの安全条件
 - CodeQL静的解析
-- SHA-256 / 保存先検索のI/Oベンチマーク
+- SHA-256 / 保存先検索 / 検証付き安全コピー / 最終確認込み取り込みのI/Oベンチマーク
 
 ワークフロー:
 

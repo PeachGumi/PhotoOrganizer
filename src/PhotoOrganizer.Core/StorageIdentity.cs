@@ -183,4 +183,90 @@ public sealed class StorageSessionTracker
                 StringComparison.Ordinal)
             && string.Equals(current.RootPath, identity.RootPath, _provider.PathComparison);
     }
+
+    public bool MatchesPair(
+        StorageSessionIdentity? firstIdentity,
+        string? firstPath,
+        StorageSessionIdentity? secondIdentity,
+        string? secondPath)
+    {
+        if (firstIdentity is null || secondIdentity is null
+            || !TryNormalizeDirectPath(firstPath, out var normalizedFirstPath)
+            || !TryNormalizeDirectPath(secondPath, out var normalizedSecondPath))
+        {
+            return false;
+        }
+
+        // Resolve both paths from the one mounted-volume snapshot used to refresh
+        // the process-local sessions. Calling Capture twice here would enumerate
+        // platform storage state twice and could observe different mount states.
+        var mounted = RefreshAndGetSnapshot();
+        var currentFirst = CaptureFromSnapshot(mounted, normalizedFirstPath);
+        var currentSecond = CaptureFromSnapshot(mounted, normalizedSecondPath);
+
+        return currentFirst is not null
+            && currentSecond is not null
+            && MatchesIdentity(firstIdentity, currentFirst)
+            && MatchesIdentity(secondIdentity, currentSecond);
+    }
+
+    private StorageSessionIdentity? CaptureFromSnapshot(
+        IReadOnlyDictionary<string, MountedVolumeInfo> mounted,
+        string normalizedPath)
+    {
+        var volume = mounted.Values
+            .Where(v => PathSafety.IsSameOrDescendant(normalizedPath, v.RootPath, _provider.PathComparison))
+            .OrderByDescending(v => v.RootPath.Length)
+            .FirstOrDefault();
+        if (volume is null || string.IsNullOrWhiteSpace(volume.Fingerprint)) return null;
+
+        var root = volume.RootPath;
+        lock (_gate)
+        {
+            if (!_sessions.TryGetValue(root, out var entry)) return null;
+            if (!string.Equals(entry.Fingerprint, volume.Fingerprint, StringComparison.Ordinal)) return null;
+            if (!string.Equals(
+                    entry.PhysicalDeviceFingerprint,
+                    volume.PhysicalDeviceFingerprint,
+                    StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            return new StorageSessionIdentity(
+                root,
+                entry.Fingerprint,
+                entry.SessionId,
+                entry.PhysicalDeviceFingerprint);
+        }
+    }
+
+    private bool MatchesIdentity(StorageSessionIdentity expected, StorageSessionIdentity current) =>
+        current.SessionId == expected.SessionId
+        && string.Equals(current.Fingerprint, expected.Fingerprint, StringComparison.Ordinal)
+        && string.Equals(
+            current.PhysicalDeviceFingerprint,
+            expected.PhysicalDeviceFingerprint,
+            StringComparison.Ordinal)
+        && string.Equals(current.RootPath, expected.RootPath, _provider.PathComparison);
+
+    private static bool TryNormalizeDirectPath(string? path, out string normalized)
+    {
+        normalized = string.Empty;
+        if (string.IsNullOrWhiteSpace(path)
+            || !PathSafety.TryValidateDirectFilesystemPath(path, out _))
+        {
+            return false;
+        }
+
+        try
+        {
+            normalized = PathSafety.Normalize(path);
+            return !string.IsNullOrWhiteSpace(normalized);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

@@ -3,6 +3,10 @@ using MetadataExtractor.Formats.Exif;
 
 namespace PhotoOrganizer.Core;
 
+public sealed record MediaDateResolutionResult(
+    string EarliestDateKey,
+    IReadOnlyList<string> DateKeys);
+
 public sealed class MediaDateResolver
 {
     public DateTime ResolveDate(string path)
@@ -33,6 +37,30 @@ public sealed class MediaDateResolver
             .Distinct(StringComparer.Ordinal)
             .OrderBy(key => key, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    public MediaDateResolutionResult ResolveDateSummary(IEnumerable<string> files)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+
+        DateTime? earliest = null;
+        var dateKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var path in files)
+        {
+            var date = ResolveDate(path);
+            if (earliest is null || date < earliest.Value)
+            {
+                earliest = date;
+            }
+
+            dateKeys.Add(date.ToString("yyyy-MM-dd"));
+        }
+
+        var earliestDateKey = (earliest ?? DateTime.Now).ToString("yyyy-MM-dd");
+        return new MediaDateResolutionResult(
+            earliestDateKey,
+            dateKeys.OrderBy(key => key, StringComparer.Ordinal).ToArray());
     }
 
     private static DateTime? TryReadExifDate(string path)

@@ -2,6 +2,11 @@ namespace PhotoOrganizer.Core;
 
 public sealed class ImportCoordinator
 {
+    private static readonly int MaxConcurrentIoOperations = Math.Clamp(
+        Environment.ProcessorCount,
+        1,
+        4);
+
     private readonly MediaClassifier _classifier;
     private readonly MediaScanner _scanner;
     private readonly SafeCopyService _copyService;
@@ -20,8 +25,13 @@ public sealed class ImportCoordinator
         _classifier = classifier;
         _scanner = new MediaScanner(classifier, volumeProvider);
         _copyService = new SafeCopyService();
-        _verifier = new FormatSafetyVerifier(classifier, volumeProvider);
-        _destinationLibrary = new DestinationLibrary(volumeProvider);
+        _verifier = new FormatSafetyVerifier(
+            classifier,
+            volumeProvider,
+            maxDegreeOfParallelism: MaxConcurrentIoOperations);
+        _destinationLibrary = new DestinationLibrary(
+            volumeProvider,
+            maxDegreeOfParallelism: MaxConcurrentIoOperations);
         _dateResolver = new MediaDateResolver();
         _storageSessions = storageSessions;
         _cardRoots = cardRoots;
@@ -195,8 +205,9 @@ public sealed class ImportCoordinator
             }
 
             IEnumerable<string> dateFiles = pending.Length == 0 ? initialFiles : pending;
-            var dateKey = _dateResolver.ResolveDateKey(dateFiles);
-            var dateKeys = _dateResolver.ResolveDateKeys(dateFiles);
+            var dateResolution = _dateResolver.ResolveDateSummary(dateFiles);
+            var dateKey = dateResolution.EarliestDateKey;
+            var dateKeys = dateResolution.DateKeys;
             if (dateKeys.Count > 1)
             {
                 warnings.Add($"Multiple capture dates detected ({string.Join(", ", dateKeys)}); using earliest date {dateKey}.");
@@ -235,50 +246,75 @@ public sealed class ImportCoordinator
 
             var copied = 0;
             var failed = 0;
-            for (var index = 0; index < pending.Length; index++)
+            void ApplyCopyResults(IEnumerable<PendingCopyResult> completed)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (!StorageMatches(session, destinationIdentity, destination))
+                foreach (var completedCopy in completed)
                 {
-                    return Blocked(
-                        "Source or destination storage changed during copying.",
-                        summary with { Copied = copied, Failed = pending.Length - index });
+                    if (completedCopy.Result.Status == CopyStatus.Failed)
+                    {
+                        failed++;
+                        errors.Add($"{completedCopy.Source}: {completedCopy.Result.Error ?? "copy failed"}");
+                    }
+                    else if (completedCopy.Result.Status == CopyStatus.Copied)
+                    {
+                        copied++;
+                    }
+                    else
+                    {
+                        skipped++;
+                    }
                 }
+            }
 
-                var source = pending[index];
-                var kind = _classifier.Classify(source);
-                if (kind is null)
-                {
-                    failed++;
-                    errors.Add($"{source}: file became unsupported unexpectedly.");
-                    continue;
-                }
+            for (var batchStart = 0; batchStart < pending.Length; batchStart += MaxConcurrentIoOperations)
+            {
+                var batchEnd = Math.Min(batchStart + MaxConcurrentIoOperations, pending.Length);
+                var batch = new List<Task<PendingCopyResult>>(batchEnd - batchStart);
 
                 progress?.Report(new ImportProgress(
                     ImportProgressPhase.Copying,
-                    index,
+                    batchStart,
                     pending.Length,
-                    $"Copying {index}/{pending.Length}"));
+                    $"Copying {batchStart}/{pending.Length}"));
 
-                var result = await _copyService.CopyAsync(
-                    source,
-                    Path.Combine(basePath, MediaClassifier.FolderName(kind.Value)),
-                    cancellationToken).ConfigureAwait(false);
+                for (var index = batchStart; index < batchEnd; index++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                if (result.Status == CopyStatus.Failed)
-                {
-                    failed++;
-                    errors.Add($"{source}: {result.Error ?? "copy failed"}");
+                    if (!StorageMatches(session, destinationIdentity, destination))
+                    {
+                        ApplyCopyResults(await Task.WhenAll(batch).ConfigureAwait(false));
+                        return Blocked(
+                            "Source or destination storage changed during copying.",
+                            summary with
+                            {
+                                Copied = copied,
+                                SkippedAlreadyBackedUp = skipped,
+                                Failed = failed + pending.Length - index
+                            });
+                    }
+
+                    var source = pending[index];
+                    var kind = _classifier.Classify(source);
+                    if (kind is null)
+                    {
+                        failed++;
+                        errors.Add($"{source}: file became unsupported unexpectedly.");
+                        continue;
+                    }
+
+                    batch.Add(CopyPendingAsync(
+                        source,
+                        Path.Combine(basePath, MediaClassifier.FolderName(kind.Value)),
+                        cancellationToken));
                 }
-                else if (result.Status == CopyStatus.Copied)
-                {
-                    copied++;
-                }
-                else
-                {
-                    skipped++;
-                }
+
+                ApplyCopyResults(await Task.WhenAll(batch).ConfigureAwait(false));
+                progress?.Report(new ImportProgress(
+                    ImportProgressPhase.Copying,
+                    batchEnd,
+                    pending.Length,
+                    $"Copying {batchEnd}/{pending.Length}"));
             }
 
             summary = summary with
@@ -427,8 +463,24 @@ public sealed class ImportCoordinator
         ImportScanSession session,
         StorageSessionIdentity destinationIdentity,
         string destination) =>
-        _storageSessions.Matches(session.SourceIdentity, session.CardRoot)
-        && _storageSessions.Matches(destinationIdentity, destination);
+        _storageSessions.MatchesPair(
+            session.SourceIdentity,
+            session.CardRoot,
+            destinationIdentity,
+            destination);
+
+    private async Task<PendingCopyResult> CopyPendingAsync(
+        string source,
+        string destinationDirectory,
+        CancellationToken cancellationToken)
+    {
+        var result = await _copyService
+            .CopyAsync(source, destinationDirectory, cancellationToken)
+            .ConfigureAwait(false);
+        return new PendingCopyResult(source, result);
+    }
+
+    private sealed record PendingCopyResult(string Source, CopyResult Result);
 
     private static long? TryGetAvailableBytes(string volumeRoot)
     {

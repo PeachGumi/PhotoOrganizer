@@ -47,6 +47,39 @@ public sealed class ImportCoordinatorTests
     }
 
     [TestMethod]
+    public async Task ConcurrentSameNameCopies_PreserveBothSourcesAndFinalizeWithoutPartials()
+    {
+        using var env = TestEnvironment.Create();
+        var first = env.AddCameraFile("DCIM/CARD_A/photo.jpg", "first-camera-payload", new DateTime(2026, 2, 4));
+        var second = env.AddCameraFile("DCIM/CARD_B/photo.jpg", "second-camera-payload", new DateTime(2026, 2, 4));
+        var coordinator = env.CreateCoordinator();
+        var scan = coordinator.ScanCard(env.CardRoot);
+
+        var result = await coordinator.ImportAsync(scan.Session!, env.DestinationRoot, "Parallel");
+
+        Assert.IsTrue(result.IsSafeToReuse, result.Message);
+        Assert.AreEqual(2, result.Summary.Copied);
+        Assert.AreEqual("first-camera-payload", File.ReadAllText(first));
+        Assert.AreEqual("second-camera-payload", File.ReadAllText(second));
+
+        var destinationFolder = Path.Combine(
+            env.DestinationRoot,
+            "2026",
+            "2026-02-04_Parallel",
+            "JPG");
+        var copiedPayloads = Directory
+            .EnumerateFiles(destinationFolder, "photo*.jpg", SearchOption.TopDirectoryOnly)
+            .Select(File.ReadAllText)
+            .ToArray();
+        CollectionAssert.AreEquivalent(
+            new[] { "first-camera-payload", "second-camera-payload" },
+            copiedPayloads);
+        Assert.IsFalse(Directory
+            .EnumerateFiles(destinationFolder, ".partial-*", SearchOption.TopDirectoryOnly)
+            .Any());
+    }
+
+    [TestMethod]
     public async Task DuplicateOnlySecondRun_DoesNotCreateEmptyEventFolder()
     {
         using var env = TestEnvironment.Create();

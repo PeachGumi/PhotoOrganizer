@@ -4,6 +4,11 @@ using PhotoOrganizer.Core;
 var fileCount = ReadInt(args, "--files", 120);
 var sizeKiB = ReadInt(args, "--size-kib", 128);
 var noiseCount = ReadInt(args, "--noise", 300);
+var defaultParallelism = Math.Clamp(Environment.ProcessorCount, 1, 4);
+var copyFileCount = ReadInt(args, "--copy-files", 4);
+var copySizeMiB = ReadInt(args, "--copy-size-mib", 32);
+var copyParallelism = ReadInt(args, "--copy-parallelism", defaultParallelism);
+var hashParallelism = ReadInt(args, "--hash-parallelism", defaultParallelism);
 var fileSize = checked(sizeKiB * 1024);
 
 var root = Path.Combine(Path.GetTempPath(), "PhotoOrganizerIoBenchmark-" + Guid.NewGuid().ToString("N"));
@@ -28,8 +33,10 @@ try
         WriteDeterministicFile(path, fileSize + 1 + (i % 7), seed: 100_000 + i);
     }
 
-    Console.WriteLine($"Photo Organizer I/O benchmark: files={fileCount}, fileSize={fileSize:N0} bytes, libraryNoise={noiseCount}");
-    await RunNoCandidateScenario(sources, destinationRoot);
+    Console.WriteLine(
+        $"Photo Organizer I/O benchmark: files={fileCount}, fileSize={fileSize:N0} bytes, " +
+        $"libraryNoise={noiseCount}, hashParallelism={hashParallelism}");
+    await RunNoCandidateScenario(sources, destinationRoot, hashParallelism);
 
     Directory.Delete(destinationRoot, recursive: true);
     Directory.CreateDirectory(destinationRoot);
@@ -42,7 +49,10 @@ try
         matchingSources.Add(sources[i]);
     }
 
-    await RunCandidateCacheScenario(sources, matchingSources, destinationRoot, fileSize);
+    await RunCandidateCacheScenario(sources, matchingSources, destinationRoot, fileSize, hashParallelism);
+
+    await RunSafeCopyScenario(root, copyFileCount, copySizeMiB, copyParallelism);
+    await RunEndToEndImportScenario(root, copyFileCount, copySizeMiB);
 
     var process = Process.GetCurrentProcess();
     Console.WriteLine($"peakWorkingSetBytes={process.PeakWorkingSet64:N0}");
@@ -53,11 +63,98 @@ finally
     try { Directory.Delete(root, recursive: true); } catch { }
 }
 
-static async Task RunNoCandidateScenario(IReadOnlyList<string> sources, string destinationRoot)
+static async Task RunSafeCopyScenario(string root, int fileCount, int sizeMiB, int parallelism)
+{
+    var sourceRoot = Directory.CreateDirectory(Path.Combine(root, "copy-source")).FullName;
+    var destinationRoot = Directory.CreateDirectory(Path.Combine(root, "copy-destination")).FullName;
+    var fileSize = checked(sizeMiB * 1024 * 1024);
+    var sources = new List<string>(fileCount);
+
+    for (var i = 0; i < fileCount; i++)
+    {
+        var path = Path.Combine(sourceRoot, $"COPY_{i:D3}.mov");
+        WriteDeterministicFile(path, fileSize, seed: 200_000 + i);
+        sources.Add(path);
+    }
+
+    var stopwatch = Stopwatch.StartNew();
+    await Parallel.ForEachAsync(
+        sources,
+        new ParallelOptions { MaxDegreeOfParallelism = parallelism },
+        async (source, cancellationToken) =>
+        {
+            var result = await new SafeCopyService().CopyAsync(source, destinationRoot, cancellationToken);
+            if (result.Status != CopyStatus.Copied)
+            {
+                throw new InvalidOperationException($"Safe copy benchmark failed: {result.Error}");
+            }
+        });
+    stopwatch.Stop();
+
+    var logicalBytes = (long)fileCount * fileSize;
+    var logicalMiBPerSecond = logicalBytes / 1024d / 1024d / stopwatch.Elapsed.TotalSeconds;
+    Console.WriteLine(
+        $"safe-copy: files={fileCount}, fileSizeMiB={sizeMiB}, parallelism={parallelism}, logicalBytes={logicalBytes:N0}, " +
+        $"elapsedMs={stopwatch.Elapsed.TotalMilliseconds:F1}, logicalMiBPerSecond={logicalMiBPerSecond:F1}");
+}
+
+static async Task RunEndToEndImportScenario(string root, int fileCount, int sizeMiB)
+{
+    var cardRoot = Directory.CreateDirectory(Path.Combine(root, "import-card")).FullName;
+    var dcimRoot = Directory.CreateDirectory(Path.Combine(cardRoot, "DCIM")).FullName;
+    var destinationRoot = Directory.CreateDirectory(Path.Combine(root, "import-destination")).FullName;
+    var fileSize = checked(sizeMiB * 1024 * 1024);
+
+    for (var i = 0; i < fileCount; i++)
+    {
+        var path = Path.Combine(dcimRoot, $"IMPORT_{i:D3}.mov");
+        WriteDeterministicFile(path, fileSize, seed: 300_000 + i);
+        File.SetLastWriteTime(path, new DateTime(2026, 8, 31, 12, 0, 0).AddSeconds(i));
+    }
+
+    var provider = new BenchmarkVolumeProvider(cardRoot, destinationRoot);
+    var tracker = new StorageSessionTracker(provider);
+    var classifier = new MediaClassifier();
+    var coordinator = new ImportCoordinator(
+        classifier,
+        tracker,
+        new CameraCardRootResolver(provider),
+        provider);
+    var scan = coordinator.ScanCard(cardRoot);
+    if (!scan.IsReady)
+    {
+        throw new InvalidOperationException($"End-to-end benchmark scan failed: {scan.Message}");
+    }
+
+    var stopwatch = Stopwatch.StartNew();
+    var result = await coordinator.ImportAsync(
+        scan.Session!,
+        destinationRoot,
+        "Benchmark");
+    stopwatch.Stop();
+
+    if (!result.IsSafeToReuse)
+    {
+        throw new InvalidOperationException($"End-to-end benchmark import failed: {result.Message}");
+    }
+
+    var logicalBytes = (long)fileCount * fileSize;
+    var logicalMiBPerSecond = logicalBytes / 1024d / 1024d / stopwatch.Elapsed.TotalSeconds;
+    Console.WriteLine(
+        $"end-to-end-import: files={fileCount}, fileSizeMiB={sizeMiB}, logicalBytes={logicalBytes:N0}, " +
+        $"elapsedMs={stopwatch.Elapsed.TotalMilliseconds:F1}, logicalMiBPerSecond={logicalMiBPerSecond:F1}");
+}
+
+static async Task RunNoCandidateScenario(
+    IReadOnlyList<string> sources,
+    string destinationRoot,
+    int hashParallelism)
 {
     var hasher = new CountingHasher();
     var stopwatch = Stopwatch.StartNew();
-    var result = await new DestinationLibrary(hasher: hasher)
+    var result = await new DestinationLibrary(
+            hasher: hasher,
+            maxDegreeOfParallelism: hashParallelism)
         .FindVerifiedBackupsAsync(sources, destinationRoot);
     stopwatch.Stop();
 
@@ -75,11 +172,14 @@ static async Task RunCandidateCacheScenario(
     IReadOnlyList<string> allSources,
     IReadOnlyList<string> matchingSources,
     string destinationRoot,
-    int fileSize)
+    int fileSize,
+    int hashParallelism)
 {
     var lookupHasher = new CountingHasher();
     var stopwatch = Stopwatch.StartNew();
-    var lookup = await new DestinationLibrary(hasher: lookupHasher)
+    var lookup = await new DestinationLibrary(
+            hasher: lookupHasher,
+            maxDegreeOfParallelism: hashParallelism)
         .FindVerifiedBackupsAsync(allSources, destinationRoot);
     stopwatch.Stop();
 
@@ -97,7 +197,10 @@ static async Task RunCandidateCacheScenario(
 
     var verificationHasher = new CountingHasher();
     stopwatch.Restart();
-    var verification = await new FormatSafetyVerifier(new MediaClassifier(), hasher: verificationHasher)
+    var verification = await new FormatSafetyVerifier(
+            new MediaClassifier(),
+            hasher: verificationHasher,
+            maxDegreeOfParallelism: hashParallelism)
         .VerifyAsync(matchingSources, destinationRoot);
     stopwatch.Stop();
 
@@ -128,9 +231,23 @@ static async Task RunCandidateCacheScenario(
 static void WriteDeterministicFile(string path, int size, int seed)
 {
     var random = new Random(seed);
-    var buffer = new byte[size];
-    random.NextBytes(buffer);
-    File.WriteAllBytes(path, buffer);
+    var buffer = new byte[Math.Min(size, 1024 * 1024)];
+    using var stream = new FileStream(
+        path,
+        FileMode.CreateNew,
+        FileAccess.Write,
+        FileShare.None,
+        bufferSize: buffer.Length,
+        FileOptions.SequentialScan);
+
+    var remaining = size;
+    while (remaining > 0)
+    {
+        var count = Math.Min(remaining, buffer.Length);
+        random.NextBytes(buffer.AsSpan(0, count));
+        stream.Write(buffer, 0, count);
+        remaining -= count;
+    }
 }
 
 static int ReadInt(string[] args, string key, int fallback)
@@ -145,13 +262,55 @@ static int ReadInt(string[] args, string key, int fallback)
 
 sealed class CountingHasher : IFileHasher
 {
-    public long BytesRead { get; private set; }
-    public int HashCalls { get; private set; }
+    private long _bytesRead;
+    private int _hashCalls;
+
+    public long BytesRead => Interlocked.Read(ref _bytesRead);
+    public int HashCalls => Volatile.Read(ref _hashCalls);
 
     public async Task<string> Sha256Async(string path, CancellationToken cancellationToken = default)
     {
-        BytesRead += new FileInfo(path).Length;
-        HashCalls++;
+        Interlocked.Add(ref _bytesRead, new FileInfo(path).Length);
+        Interlocked.Increment(ref _hashCalls);
         return await Hashing.Sha256Async(path, cancellationToken);
+    }
+}
+
+sealed class BenchmarkVolumeProvider : IStorageVolumeProvider
+{
+    private readonly IReadOnlyList<MountedVolumeInfo> _volumes;
+
+    public BenchmarkVolumeProvider(string cardRoot, string destinationRoot)
+    {
+        _volumes =
+        [
+            new MountedVolumeInfo(
+                PathSafety.Normalize(cardRoot),
+                "benchmark-card-volume",
+                true,
+                false,
+                "benchmark-card-device"),
+            new MountedVolumeInfo(
+                PathSafety.Normalize(destinationRoot),
+                "benchmark-destination-volume",
+                false,
+                false,
+                "benchmark-destination-device")
+        ];
+    }
+
+    public StringComparison PathComparison => OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+
+    public IReadOnlyList<MountedVolumeInfo> GetMountedVolumes() => _volumes;
+
+    public MountedVolumeInfo? ResolveVolumeForPath(string path)
+    {
+        var normalized = PathSafety.Normalize(path);
+        return _volumes
+            .Where(volume => PathSafety.IsSameOrDescendant(normalized, volume.RootPath, PathComparison))
+            .OrderByDescending(volume => volume.RootPath.Length)
+            .FirstOrDefault();
     }
 }
