@@ -55,10 +55,9 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
                 }
                 else if (OperatingSystem.IsMacOS())
                 {
-                    // diskutil exposes both persistent volume identity and the
-                    // containing whole-disk identity. Resolve them together so a safety
-                    // refresh never launches a second subprocess for the same volume.
-                    var identity = TryGetMacStorageIdentity(root);
+                    // Query Disk Arbitration directly on every refresh: no subprocess
+                    // startup cost and no stale identity cache between safety checks.
+                    var identity = MacStorageIdentityReader.Read(root);
                     fingerprint = identity?.VolumeFingerprint;
                     physicalDeviceFingerprint = identity?.PhysicalDeviceFingerprint;
                 }
@@ -166,24 +165,6 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
         }
 
         return null;
-    }
-
-    [SupportedOSPlatform("macos")]
-    private static MacStorageIdentity? TryGetMacStorageIdentity(string root)
-    {
-        var result = BoundedProcessRunner.Run(
-            "/usr/sbin/diskutil",
-            ["info", "-plist", root],
-            TimeSpan.FromSeconds(5));
-        if (result is null
-            || result.TimedOut
-            || result.ExitCode != 0
-            || string.IsNullOrWhiteSpace(result.StandardOutput))
-        {
-            return null;
-        }
-
-        return MacDiskutilInfoParser.Parse(result.StandardOutput);
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]

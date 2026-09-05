@@ -20,11 +20,12 @@ public sealed class ImportCoordinator
         MediaClassifier classifier,
         StorageSessionTracker storageSessions,
         CameraCardRootResolver cardRoots,
-        IStorageVolumeProvider volumeProvider)
+        IStorageVolumeProvider volumeProvider,
+        IFileDurabilityService? durabilityService = null)
     {
         _classifier = classifier;
         _scanner = new MediaScanner(classifier, volumeProvider);
-        _copyService = new SafeCopyService();
+        _copyService = new SafeCopyService(durabilityService);
         _verifier = new FormatSafetyVerifier(
             classifier,
             volumeProvider,
@@ -219,7 +220,9 @@ public sealed class ImportCoordinator
                 return Blocked("Event name contains no usable filename characters.", summary);
             }
 
-            var basePath = Path.Combine(destination, dateKey[..4], $"{dateKey}_{sanitizedEvent}");
+            var basePath = pending.Length == 0
+                ? destination
+                : Path.Combine(destination, dateKey[..4], $"{dateKey}_{sanitizedEvent}");
             summary = summary with
             {
                 Failed = 0,
@@ -238,10 +241,6 @@ public sealed class ImportCoordinator
                         summary with { Failed = pending.Length });
                 }
 
-                foreach (var kind in Enum.GetValues<MediaKind>())
-                {
-                    Directory.CreateDirectory(Path.Combine(basePath, MediaClassifier.FolderName(kind)));
-                }
             }
 
             var copied = 0;
@@ -270,51 +269,75 @@ public sealed class ImportCoordinator
             {
                 var batchEnd = Math.Min(batchStart + MaxConcurrentIoOperations, pending.Length);
                 var batch = new List<Task<PendingCopyResult>>(batchEnd - batchStart);
+                var batchDrained = false;
 
-                progress?.Report(new ImportProgress(
-                    ImportProgressPhase.Copying,
-                    batchStart,
-                    pending.Length,
-                    $"Copying {batchStart}/{pending.Length}"));
-
-                for (var index = batchStart; index < batchEnd; index++)
+                try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    progress?.Report(new ImportProgress(
+                        ImportProgressPhase.Copying,
+                        batchStart,
+                        pending.Length,
+                        $"Copying {batchStart}/{pending.Length}"));
 
-                    if (!StorageMatches(session, destinationIdentity, destination))
+                    for (var index = batchStart; index < batchEnd; index++)
                     {
-                        ApplyCopyResults(await Task.WhenAll(batch).ConfigureAwait(false));
-                        return Blocked(
-                            "Source or destination storage changed during copying.",
-                            summary with
-                            {
-                                Copied = copied,
-                                SkippedAlreadyBackedUp = skipped,
-                                Failed = failed + pending.Length - index
-                            });
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        if (!StorageMatches(session, destinationIdentity, destination))
+                        {
+                            ApplyCopyResults(await Task.WhenAll(batch).ConfigureAwait(false));
+                            batchDrained = true;
+                            return Blocked(
+                                "Source or destination storage changed during copying.",
+                                summary with
+                                {
+                                    Copied = copied,
+                                    SkippedAlreadyBackedUp = skipped,
+                                    Failed = failed + pending.Length - index
+                                });
+                        }
+
+                        var source = pending[index];
+                        var kind = _classifier.Classify(source);
+                        if (kind is null)
+                        {
+                            failed++;
+                            errors.Add($"{source}: file became unsupported unexpectedly.");
+                            continue;
+                        }
+
+                        batch.Add(CopyPendingAsync(
+                            source,
+                            Path.Combine(basePath, MediaClassifier.FolderName(kind.Value)),
+                            cancellationToken));
                     }
 
-                    var source = pending[index];
-                    var kind = _classifier.Classify(source);
-                    if (kind is null)
-                    {
-                        failed++;
-                        errors.Add($"{source}: file became unsupported unexpectedly.");
-                        continue;
-                    }
-
-                    batch.Add(CopyPendingAsync(
-                        source,
-                        Path.Combine(basePath, MediaClassifier.FolderName(kind.Value)),
-                        cancellationToken));
+                    ApplyCopyResults(await Task.WhenAll(batch).ConfigureAwait(false));
+                    batchDrained = true;
+                    progress?.Report(new ImportProgress(
+                        ImportProgressPhase.Copying,
+                        batchEnd,
+                        pending.Length,
+                        $"Copying {batchEnd}/{pending.Length}"));
                 }
-
-                ApplyCopyResults(await Task.WhenAll(batch).ConfigureAwait(false));
-                progress?.Report(new ImportProgress(
-                    ImportProgressPhase.Copying,
-                    batchEnd,
-                    pending.Length,
-                    $"Copying {batchEnd}/{pending.Length}"));
+                finally
+                {
+                    if (!batchDrained && batch.Count > 0)
+                    {
+                        try
+                        {
+                            // Keep ImportAsync alive until every copy already handed
+                            // to the batch has completed, even when the loop exits
+                            // through cancellation or an unexpected exception.
+                            await Task.WhenAll(batch).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            // Preserve the original failure; awaiting WhenAll above
+                            // still observes every started task.
+                        }
+                    }
+                }
             }
 
             summary = summary with

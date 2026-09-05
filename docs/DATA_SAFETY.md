@@ -46,13 +46,13 @@ For every new source file:
 4. Flush the completed temporary destination once with a disk-persistence request; individual writes do not use write-through mode.
 5. Verify temporary size and a freshly read SHA-256 against the copy-time source size and SHA-256.
 6. Re-read the source SHA-256 and size to ensure the source did not change during copy or temporary verification.
-7. If an existing candidate has identical size and SHA-256, treat it as an already-imported duplicate only after that candidate can be durably synchronized.
+7. If an existing candidate has identical size and SHA-256, treat it as an already-imported duplicate only after that candidate can be durably synchronized and its size and freshly read SHA-256 still match afterward.
 8. If a name collides with different bytes, select `_2`, `_3`, and so on.
 9. Move the verified temporary file to an unused final path without overwrite, retrying collision resolution if another writer claims the name.
 10. Set final metadata, then durably commit the finalized file and its directory entry before reporting copy success.
 11. Verify final size and a freshly read SHA-256 again.
 
-Independent copy transactions may run with a small bounded concurrency. Every file still follows the complete ordered transaction above, uses its own random temporary path, and receives an independent no-clobber finalization and durability proof.
+Independent copy transactions may run with a small bounded concurrency. Every file still follows the complete ordered transaction above, uses its own random temporary path, and receives an independent no-clobber finalization and durability proof. Import completion, failure, and cancellation must all wait for every started copy transaction and its cleanup to finish.
 
 Durable commit is platform-specific and fail-closed:
 
@@ -94,6 +94,8 @@ If any condition cannot be proved, the UI must remain blocked/not-verified.
 Path strings alone are not storage identity. Unmount/remount, same-letter replacement on Windows, same-mount-path replacement on macOS, or a physical-device mapping change must invalidate a previous scan and approval.
 
 Platform adapters are responsible for mounted-volume, physical-device, and process-local mount-session identities that fail closed when required identity cannot be established.
+
+On macOS, fresh Disk Arbitration queries replace per-volume `diskutil` subprocesses; this optimization must not cache successful identities or skip per-file storage checks. Changing the destination input clears prior reuse approval and the completion target.
 
 ## Multi-card behavior
 

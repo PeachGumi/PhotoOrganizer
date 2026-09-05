@@ -7,6 +7,36 @@ namespace PhotoOrganizer.Core.Tests;
 public sealed class ImportCoordinatorTests
 {
     [TestMethod]
+    public async Task EventDirectorySymlink_IsRejectedWithoutCreatingDirectoriesOnCard()
+    {
+        using var env = TestEnvironment.Create();
+        var source = env.AddCameraFile("DCIM/photo.jpg", "camera-data", new DateTime(2026, 1, 2));
+        var year = Directory.CreateDirectory(Path.Combine(env.DestinationRoot, "2026")).FullName;
+        var link = Path.Combine(year, "2026-01-02_Event");
+        try
+        {
+            Directory.CreateSymbolicLink(link, env.CardRoot);
+        }
+        catch (Exception ex) when (ex is PlatformNotSupportedException or UnauthorizedAccessException or IOException)
+        {
+            Assert.Inconclusive($"Symbolic links unavailable: {ex.Message}");
+        }
+        try
+        {
+            var coordinator = env.CreateCoordinator();
+            var result = await coordinator.ImportAsync(coordinator.ScanCard(env.CardRoot).Session!, env.DestinationRoot, "Event");
+            Assert.IsFalse(result.IsSafeToReuse);
+            Assert.AreEqual("camera-data", File.ReadAllText(source));
+            foreach (var kind in Enum.GetValues<MediaKind>())
+            {
+                Assert.IsFalse(Directory.Exists(Path.Combine(env.CardRoot, MediaClassifier.FolderName(kind))),
+                    "Reject aliased event paths before any directory creation.");
+            }
+        }
+        finally { Directory.Delete(link); }
+    }
+
+    [TestMethod]
     public async Task SuccessfulImport_IsSafeOnlyAfterFreshRescanAndByteVerification()
     {
         using var env = TestEnvironment.Create();
@@ -95,6 +125,8 @@ public sealed class ImportCoordinatorTests
         Assert.IsTrue(second.IsSafeToReuse, second.Message);
         Assert.AreEqual(0, second.Summary.Copied);
         Assert.AreEqual(1, second.Summary.SkippedAlreadyBackedUp);
+        Assert.IsTrue(Directory.Exists(second.Summary.BasePath), "Completion must point to an existing directory.");
+        Assert.AreEqual(env.DestinationRoot, second.Summary.BasePath);
         Assert.IsFalse(Directory.Exists(Path.Combine(env.DestinationRoot, "2026", "2026-03-04_Second")));
     }
 

@@ -63,6 +63,38 @@ public sealed class SafeCopyRaceSafetyTests
         StringAssert.Contains(result.Error ?? string.Empty, "simulated duplicate durability failure");
     }
 
+    [TestMethod]
+    public async Task ExistingDuplicateChangedDuringDurability_IsRejectedAfterFreshHash()
+    {
+        using var temp = new TempDirectory();
+        var sourceDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "source")).FullName;
+        var destinationDirectory = Directory.CreateDirectory(Path.Combine(temp.Path, "destination")).FullName;
+        var source = Path.Combine(sourceDirectory, "photo.jpg");
+        var destination = Path.Combine(destinationDirectory, "photo.jpg");
+        File.WriteAllText(source, "camera-data");
+        File.WriteAllText(destination, "camera-data");
+
+        var result = await new SafeCopyService(new MutatingDuplicateDurabilityService())
+            .CopyAsync(source, destinationDirectory);
+
+        Assert.AreEqual(CopyStatus.Failed, result.Status);
+        Assert.AreEqual("camera-data", File.ReadAllText(source));
+        Assert.AreEqual("edited-data", File.ReadAllText(destination));
+        Assert.IsFalse(Directory.EnumerateFiles(destinationDirectory, ".partial-*").Any());
+    }
+
+    private sealed class MutatingDuplicateDurabilityService : IFileDurabilityService
+    {
+        public FinalizeFileResult FinalizeNewFile(string temporaryPath, string finalPath, DateTime lastWriteUtc) =>
+            throw new NotSupportedException();
+
+        public DurabilityResult EnsureDurable(string filePath)
+        {
+            File.WriteAllText(filePath, "edited-data");
+            return new(true);
+        }
+    }
+
     private sealed class ClaimFirstFinalNameDurabilityService : IFileDurabilityService
     {
         private int _calls;

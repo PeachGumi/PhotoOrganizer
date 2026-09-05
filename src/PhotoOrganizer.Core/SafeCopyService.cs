@@ -138,7 +138,8 @@ public sealed class SafeCopyService
                 }
 
                 temporaryPathForCleanup = null;
-                return VerifyExistingDuplicate(resolution.Path);
+                return await VerifyExistingDuplicateAsync(resolution.Path, sourceSize, sourceHashDuringCopy, cancellationToken)
+                    .ConfigureAwait(false);
             }
 
             var finalPath = resolution.Path;
@@ -180,7 +181,8 @@ public sealed class SafeCopyService
                     }
 
                     temporaryPathForCleanup = null;
-                    return VerifyExistingDuplicate(resolution.Path);
+                    return await VerifyExistingDuplicateAsync(resolution.Path, sourceSize, sourceHashDuringCopy, cancellationToken)
+                        .ConfigureAwait(false);
                 }
 
                 finalPath = resolution.Path;
@@ -272,15 +274,31 @@ public sealed class SafeCopyService
         }
     }
 
-    private CopyResult VerifyExistingDuplicate(string path)
+    private async Task<CopyResult> VerifyExistingDuplicateAsync(
+        string path, long sourceSize, string sourceHash, CancellationToken cancellationToken)
     {
         var durability = _durability.EnsureDurable(path);
-        return durability.Success
-            ? new CopyResult(CopyStatus.SkippedDuplicate, path)
-            : new CopyResult(
-                CopyStatus.Failed,
-                path,
+        if (!durability.Success)
+        {
+            return new CopyResult(CopyStatus.Failed, path,
                 durability.Error ?? "Existing duplicate could not be committed durably.");
+        }
+
+        if (!PathSafety.TryValidateDirectFilesystemPath(path, out var pathError))
+        {
+            return new CopyResult(CopyStatus.Failed, path, $"Existing duplicate path changed: {pathError}");
+        }
+
+        var info = new FileInfo(path);
+        if (!info.Exists || info.Length != sourceSize
+            || !string.Equals(sourceHash,
+                await Hashing.Sha256Async(path, cancellationToken).ConfigureAwait(false),
+                StringComparison.Ordinal))
+        {
+            return new CopyResult(CopyStatus.Failed, path, "Existing duplicate changed during durable verification.");
+        }
+
+        return new CopyResult(CopyStatus.SkippedDuplicate, path);
     }
 
     private static bool TryDeleteTemporaryBeforeDuplicate(string temporaryPath, out string? error)
