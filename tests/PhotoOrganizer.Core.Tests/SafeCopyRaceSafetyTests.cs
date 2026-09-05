@@ -6,6 +6,51 @@ namespace PhotoOrganizer.Core.Tests;
 public sealed class SafeCopyRaceSafetyTests
 {
     [TestMethod]
+    public async Task ConcurrentRealFinalization_SameNameDoesNotOverwriteCommittedFile()
+    {
+        if (!OperatingSystem.IsMacOS()) return;
+
+        for (var attempt = 0; attempt < 64; attempt++)
+        {
+            using var temp = new TempDirectory();
+            var firstTemporaryPath = Path.Combine(temp.Path, ".partial-first");
+            var secondTemporaryPath = Path.Combine(temp.Path, ".partial-second");
+            var finalPath = Path.Combine(temp.Path, "photo.jpg");
+            File.WriteAllText(firstTemporaryPath, "first-finalization-payload");
+            File.WriteAllText(secondTemporaryPath, "second-finalization-payload-with-different-size");
+
+            using var start = new Barrier(2);
+            var durability = new PlatformFileDurabilityService();
+            var results = await Task.WhenAll(
+                Task.Run(() => FinalizeAtBarrier(durability, start, firstTemporaryPath, finalPath)),
+                Task.Run(() => FinalizeAtBarrier(durability, start, secondTemporaryPath, finalPath)));
+
+            Assert.AreEqual(
+                1,
+                results.Count(result => result.Status == FinalizeFileStatus.Committed),
+                $"attempt {attempt}: {string.Join(" | ", results.Select(result => result.Error ?? result.Status.ToString()))}");
+            Assert.AreEqual(
+                1,
+                results.Count(result => result.Status == FinalizeFileStatus.DestinationExists),
+                $"attempt {attempt}: {string.Join(" | ", results.Select(result => result.Error ?? result.Status.ToString()))}");
+            var finalPayload = File.ReadAllText(finalPath);
+            Assert.IsTrue(
+                finalPayload is "first-finalization-payload" or "second-finalization-payload-with-different-size",
+                $"attempt {attempt}: unexpected final payload {finalPayload}");
+        }
+    }
+
+    private static FinalizeFileResult FinalizeAtBarrier(
+        PlatformFileDurabilityService durability,
+        Barrier start,
+        string temporaryPath,
+        string finalPath)
+    {
+        start.SignalAndWait();
+        return durability.FinalizeNewFile(temporaryPath, finalPath, DateTime.UtcNow);
+    }
+
+    [TestMethod]
     public async Task FinalNameClaimedDuringFinalize_PreservesCompetitorAndUsesSuffix()
     {
         using var temp = new TempDirectory();

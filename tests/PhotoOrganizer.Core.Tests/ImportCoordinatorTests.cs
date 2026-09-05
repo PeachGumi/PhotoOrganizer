@@ -87,7 +87,9 @@ public sealed class ImportCoordinatorTests
 
         var result = await coordinator.ImportAsync(scan.Session!, env.DestinationRoot, "Parallel");
 
-        Assert.IsTrue(result.IsSafeToReuse, result.Message);
+        Assert.IsTrue(
+            result.IsSafeToReuse,
+            $"{result.Message} Errors: {string.Join(" | ", result.Summary.Errors)}");
         Assert.AreEqual(2, result.Summary.Copied);
         Assert.AreEqual("first-camera-payload", File.ReadAllText(first));
         Assert.AreEqual("second-camera-payload", File.ReadAllText(second));

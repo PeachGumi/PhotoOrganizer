@@ -30,6 +30,8 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
     private const int FFullFsync = 51;
     private const int OpenReadOnly = 0;
     private const int InterruptedSystemCall = 4;
+    private const int FileExistsError = 17;
+    private const uint RenameExclusive = 0x00000004;
 
     public FinalizeFileResult FinalizeNewFile(string temporaryPath, string finalPath, DateTime lastWriteUtc)
     {
@@ -71,6 +73,53 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
                 // MOVEFILE_WRITE_THROUGH flushes the already-durable file and the
                 // rename metadata before returning, so no post-publish writer handle
                 // can race a concurrent final-path hash.
+                return new FinalizeFileResult(FinalizeFileStatus.Committed, true);
+            }
+
+            if (OperatingSystem.IsMacOS())
+            {
+                // macOS's managed no-replace move is not an atomic claim when
+                // concurrent renames target the same path. Stage all
+                // metadata and data durability privately, then use renamex_np's
+                // RENAME_EXCL so exactly one transaction can publish this name.
+                File.SetLastWriteTimeUtc(temporaryPath, lastWriteUtc);
+                var temporaryDurability = EnsureDurable(temporaryPath);
+                if (!temporaryDurability.Success)
+                {
+                    return new FinalizeFileResult(
+                        FinalizeFileStatus.Failed,
+                        false,
+                        temporaryDurability.Error ?? "Temporary copy could not be committed durably.");
+                }
+
+                var renameResult = RenameMac(temporaryPath, finalPath, RenameExclusive);
+                if (renameResult != 0)
+                {
+                    var error = Marshal.GetLastPInvokeError();
+                    if (error == FileExistsError || File.Exists(finalPath) || Directory.Exists(finalPath))
+                    {
+                        return new FinalizeFileResult(FinalizeFileStatus.DestinationExists, false);
+                    }
+
+                    return new FinalizeFileResult(
+                        FinalizeFileStatus.Failed,
+                        false,
+                        $"macOS exclusive final move failed (errno {error}): {new Win32Exception(error).Message}");
+                }
+
+                moved = true;
+                // The exclusive rename publishes an already-durable immutable file.
+                // No post-publish writer handle is needed; this final read-only
+                // durability pass persists the new directory entry and file state.
+                var finalDurability = EnsureDurable(finalPath);
+                if (!finalDurability.Success)
+                {
+                    return new FinalizeFileResult(
+                        FinalizeFileStatus.Failed,
+                        true,
+                        finalDurability.Error ?? "Finalized file could not be committed durably.");
+                }
+
                 return new FinalizeFileResult(FinalizeFileStatus.Committed, true);
             }
 
@@ -239,6 +288,9 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
     [LibraryImport("kernel32.dll", EntryPoint = "MoveFileExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool MoveFileEx(string existingFileName, string newFileName, uint flags);
+
+    [LibraryImport("/usr/lib/libSystem.B.dylib", EntryPoint = "renamex_np", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int RenameMac(string existingFileName, string newFileName, uint flags);
 
     [LibraryImport("/usr/lib/libSystem.B.dylib", EntryPoint = "open", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
     private static partial int OpenMac(string path, int flags);
