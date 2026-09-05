@@ -11,9 +11,25 @@ public sealed record AppPreferences(
         MediaClassifier.DefaultRawExtensions.ToArray());
 }
 
-public sealed class AppPreferencesStore
+public interface IAppPreferencesStore
 {
-    private readonly string _path = JsonSettingsFile.GetPath("settings.json");
+    AppPreferences Load();
+    bool Save(AppPreferences preferences, out string? error);
+}
+
+public sealed class AppPreferencesStore : IAppPreferencesStore
+{
+    private readonly string _path;
+
+    public AppPreferencesStore()
+        : this(JsonSettingsFile.GetPath("settings.json"))
+    {
+    }
+
+    public AppPreferencesStore(string path)
+    {
+        _path = path;
+    }
 
     public AppPreferences Load()
     {

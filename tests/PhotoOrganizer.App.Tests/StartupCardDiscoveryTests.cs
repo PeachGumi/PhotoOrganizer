@@ -23,7 +23,7 @@ public sealed class StartupCardDiscoveryTests
         ]);
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, new TestPreferencesStore());
 
         await viewModel.InitializeAsync();
 
@@ -50,7 +50,7 @@ public sealed class StartupCardDiscoveryTests
         ]);
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, new TestPreferencesStore());
 
         await viewModel.InitializeAsync();
 

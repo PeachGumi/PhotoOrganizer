@@ -31,7 +31,7 @@ public sealed class StateTransitionPropertyTests
             using var provider = new GateVolumeProvider(cards.Select(ToVolume).ToArray());
             var sessions = new StorageSessionTracker(provider);
             var roots = new CameraCardRootResolver(provider);
-            using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+            using var viewModel = new MainWindowViewModel(provider, sessions, roots, new TestPreferencesStore());
 
             var random = new Random(unchecked(seed * 7919 + 104729));
             var active = cards[random.Next(3)]; // Empty, valid, or broken; never the disposable gone card.

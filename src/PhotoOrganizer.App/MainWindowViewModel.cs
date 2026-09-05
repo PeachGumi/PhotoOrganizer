@@ -12,10 +12,11 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     private readonly StorageSessionTracker _storageSessions;
     private readonly CameraCardRootResolver _cardRoots;
     private readonly IStorageEjectService _storageEjectService;
-    private readonly AppPreferencesStore _preferencesStore = new();
+    private readonly IAppPreferencesStore _preferencesStore;
     private readonly IStartupRegistrationService _startupRegistration = new StartupRegistrationService();
     private readonly List<string> _logLines = [];
     private readonly List<string> _pendingCards = [];
+    private readonly object _importStartGate = new();
 
     private MediaClassifier _classifier;
     private ImportCoordinator _coordinator;
@@ -53,7 +54,16 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         IStorageVolumeProvider volumeProvider,
         StorageSessionTracker storageSessions,
         CameraCardRootResolver cardRoots)
-        : this(volumeProvider, storageSessions, cardRoots, StorageEjectServiceFactory.Create())
+        : this(volumeProvider, storageSessions, cardRoots, StorageEjectServiceFactory.Create(), new AppPreferencesStore())
+    {
+    }
+
+    public MainWindowViewModel(
+        IStorageVolumeProvider volumeProvider,
+        StorageSessionTracker storageSessions,
+        CameraCardRootResolver cardRoots,
+        IAppPreferencesStore preferencesStore)
+        : this(volumeProvider, storageSessions, cardRoots, StorageEjectServiceFactory.Create(), preferencesStore)
     {
     }
 
@@ -62,11 +72,22 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         StorageSessionTracker storageSessions,
         CameraCardRootResolver cardRoots,
         IStorageEjectService storageEjectService)
+        : this(volumeProvider, storageSessions, cardRoots, storageEjectService, new AppPreferencesStore())
+    {
+    }
+
+    public MainWindowViewModel(
+        IStorageVolumeProvider volumeProvider,
+        StorageSessionTracker storageSessions,
+        CameraCardRootResolver cardRoots,
+        IStorageEjectService storageEjectService,
+        IAppPreferencesStore preferencesStore)
     {
         _volumeProvider = volumeProvider;
         _storageSessions = storageSessions;
         _cardRoots = cardRoots;
         _storageEjectService = storageEjectService;
+        _preferencesStore = preferencesStore;
 
         var preferences = _preferencesStore.Load();
         _destinationPath = preferences.DestinationPath;
@@ -90,11 +111,10 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
             if (!SetField(ref _destinationPath, value)) return;
             DestinationNeedsReselection = false;
             _destinationStorageValidationMessage = string.Empty;
+            ClearCompletion();
+            IsSafeToReuseCurrentCard = false;
             RefreshLightweightInputValidation();
-            if (!IsSafeToReuseCurrentCard)
-            {
-                SetNotVerified("保存先が変更されました。次の取り込み後に再検証が必要です。");
-            }
+            SetNotVerified("保存先が変更されました。次の取り込み後に再検証が必要です。");
             SavePreferences();
             RaiseCommandState();
         }
@@ -505,10 +525,12 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         CompletionSummary = string.Empty;
     }
 
-    private void SetCompletion(string basePath, int verified)
+    private void SetCompletion(ImportSummary summary, int verified)
     {
-        LastImportBasePath = basePath;
-        CompletionSummary = $"{verified} 件の写真・動画について、保存先の実ファイルとSHA-256一致・永続化を確認しました。";
+        LastImportBasePath = summary.BasePath;
+        CompletionSummary = summary.Copied == 0 && summary.SkippedAlreadyBackedUp > 0
+            ? $"新規コピーなし・既存コピーを検証済み。{verified} 件について、保存先の実ファイルとSHA-256一致・永続化を確認しました。"
+            : $"{verified} 件の写真・動画について、保存先の実ファイルとSHA-256一致・永続化を確認しました。";
     }
 
     private void SetProgressState(string label, int current = 0, int total = 1, bool indeterminate = false)

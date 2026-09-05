@@ -8,37 +8,53 @@ public sealed partial class MainWindowViewModel
 {
     public async Task StartImportAsync()
     {
-        if (_disposed
-            || IsBusy
-            || IsSafeToReuseCurrentCard
-            || DestinationNeedsReselection
-            || _scanSession is null
-            || string.IsNullOrWhiteSpace(DestinationPath)
-            || string.IsNullOrWhiteSpace(EventName)) return;
+        ImportScanSession session;
+        string destination;
+        string eventName;
+        CancellationTokenSource importCancellation;
 
-        await ValidateDestinationAsync().ConfigureAwait(true);
-        if (_disposed || HasInputValidationError)
+        lock (_importStartGate)
         {
-            SetProgressState("入力内容を確認してください");
-            RaiseCommandState();
-            return;
-        }
+            if (_disposed
+                || IsBusy
+                || IsSafeToReuseCurrentCard
+                || DestinationNeedsReselection
+                || _scanSession is null
+                || string.IsNullOrWhiteSpace(DestinationPath)
+                || string.IsNullOrWhiteSpace(EventName)) return;
 
-        var session = _scanSession;
-        var destination = DestinationPath;
-        var eventName = EventName.Trim();
-        var importCancellation = new CancellationTokenSource();
-        ClearCompletion();
-        IsSafeToReuseCurrentCard = false;
-        _isProcessing = true;
-        _importCancellation = importCancellation;
-        RaiseCommandState();
-        SetNotVerified("コピー処理中です。最終検証が完了するまでSDカードを再利用しないでください。");
-        SetProgressState("コピー準備中…", indeterminate: true);
-        AppendLog("取り込み開始。コピー完了だけではSDカード再利用可能とは判定しません。");
+            session = _scanSession;
+            destination = DestinationPath;
+            eventName = EventName.Trim();
+            importCancellation = new CancellationTokenSource();
+            _isProcessing = true;
+            _importCancellation = importCancellation;
+        }
 
         try
         {
+            ClearCompletion();
+            IsSafeToReuseCurrentCard = false;
+            RaiseCommandState();
+            SetNotVerified("コピー処理中です。最終検証が完了するまでSDカードを再利用しないでください。");
+            SetProgressState("コピー準備中…", indeterminate: true);
+            AppendLog("取り込み開始。コピー完了だけではSDカード再利用可能とは判定しません。");
+
+            await ValidateDestinationAsync().ConfigureAwait(true);
+            importCancellation.Token.ThrowIfCancellationRequested();
+            if (!IsCurrentImportInput(session, destination, eventName))
+            {
+                HandleImportInputChanged();
+                return;
+            }
+
+            if (HasInputValidationError)
+            {
+                SetProgressState("入力内容を確認してください");
+                RaiseCommandState();
+                return;
+            }
+
             var progress = new Progress<ImportProgress>(update =>
             {
                 if (_disposed) return;
@@ -72,6 +88,13 @@ public sealed partial class MainWindowViewModel
                 importCancellation.Token).ConfigureAwait(true);
             if (_disposed) return;
 
+            importCancellation.Token.ThrowIfCancellationRequested();
+            if (!IsCurrentImportInput(session, destination, eventName))
+            {
+                HandleImportInputChanged();
+                return;
+            }
+
             AppendLog($"処理結果: コピー {result.Summary.Copied} / 既存一致 {result.Summary.SkippedAlreadyBackedUp} / 失敗 {result.Summary.Failed}");
             if (!string.IsNullOrWhiteSpace(result.Summary.BasePath)) AppendLog($"保存先: {result.Summary.BasePath}");
             foreach (var warning in result.Summary.Warnings.Take(5)) AppendLog($"警告: {warning}");
@@ -84,7 +107,7 @@ public sealed partial class MainWindowViewModel
                 SafetyDetail = $"対象メディア {verified} 件について、取り込み後のSD再スキャン、保存先実ファイルのサイズ・SHA-256一致、永続媒体への同期（durable commit）を確認済みです。これは指定保存先1か所へのコピー検証であり、二重バックアップ済みという意味ではありません。";
                 SafetyBrush = Brushes.ForestGreen;
                 IsSafeToReuseCurrentCard = true;
-                SetCompletion(result.Summary.BasePath, verified);
+                SetCompletion(result.Summary, verified);
                 SetProgressState("取り込み・検証完了", verified, Math.Max(1, verified));
                 AppendLog($"最終確認完了: {verified} 件を実ファイルとSHA-256照合し、保存先への永続化を確認しました。SDカードを再利用できます。");
             }
@@ -119,13 +142,16 @@ public sealed partial class MainWindowViewModel
         }
         finally
         {
-            if (ReferenceEquals(_importCancellation, importCancellation))
+            lock (_importStartGate)
             {
-                _importCancellation = null;
-                importCancellation.Dispose();
+                if (ReferenceEquals(_importCancellation, importCancellation))
+                {
+                    _importCancellation = null;
+                    _isProcessing = false;
+                }
             }
 
-            _isProcessing = false;
+            importCancellation.Dispose();
             if (!_disposed)
             {
                 RaiseCommandState();
@@ -143,6 +169,42 @@ public sealed partial class MainWindowViewModel
                 }
             }
         }
+    }
+
+    private bool IsCurrentImportInput(
+        ImportScanSession session,
+        string destination,
+        string eventName)
+    {
+        if (_disposed
+            || !ReferenceEquals(session, _scanSession)
+            || !string.Equals(destination, DestinationPath, StringComparison.Ordinal)
+            || !string.Equals(eventName, EventName.Trim(), StringComparison.Ordinal)
+            || !string.Equals(session.CardRoot, SelectedSdContextPath, _storageSessions.PathComparison)
+            || !Directory.Exists(session.CardRoot))
+        {
+            return false;
+        }
+
+        try
+        {
+            return _storageSessions.Matches(session.SourceIdentity, session.CardRoot);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void HandleImportInputChanged()
+    {
+        if (_disposed) return;
+
+        IsSafeToReuseCurrentCard = false;
+        ClearCompletion();
+        SetBlocked("取り込み開始後にSDカード、保存先、イベント名が変更されたか、SDカードが取り外されました。入力を確認して取り込みをやり直してください。");
+        SetProgressState("取り込み入力が変更されました");
+        AppendLog("取り込み入力またはSDカードの接続状態が変化したため、安全確認を未完了に戻しました。");
     }
 
     private static string GetImportFailureMessage(ImportRunResult result)

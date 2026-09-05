@@ -14,7 +14,7 @@ public sealed class WorkflowUiStateTests
         var provider = new TestVolumeProvider(temp.Path);
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, new TestPreferencesStore());
 
         Assert.IsFalse(viewModel.ShowSafetyPanel);
         Assert.IsFalse(viewModel.ShowMediaSummary);
@@ -33,7 +33,7 @@ public sealed class WorkflowUiStateTests
         var provider = new TestVolumeProvider(temp.Path);
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, new TestPreferencesStore());
 
         var result = await viewModel.ScanCardAsync(temp.Path, autoDetected: true);
 
@@ -55,7 +55,7 @@ public sealed class WorkflowUiStateTests
         var provider = new TestVolumeProvider(temp.Path);
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, new TestPreferencesStore());
 
         Assert.IsFalse(viewModel.ShowSafetyPanel);
         Assert.IsFalse(viewModel.ShowMediaSummary);
@@ -82,7 +82,7 @@ public sealed class WorkflowUiStateTests
         var provider = new TestVolumeProvider(temp.Path, hasPhysicalDeviceIdentity: false);
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, new TestPreferencesStore());
 
         var result = await viewModel.ScanCardAsync(temp.Path);
 
@@ -109,7 +109,7 @@ public sealed class WorkflowUiStateTests
         var provider = new TestVolumeProvider(temp.Path);
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, new TestPreferencesStore());
 
         var result = await viewModel.ScanCardAsync(temp.Path);
         Assert.IsNotNull(result);

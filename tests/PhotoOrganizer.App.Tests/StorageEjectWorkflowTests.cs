@@ -19,7 +19,7 @@ public sealed class StorageEjectWorkflowTests
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
         var eject = new RecordingEjectService(StorageEjectResult.Succeeded("取り出しました"));
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots, eject);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, eject, new TestPreferencesStore());
 
         var scan = await viewModel.ScanCardAsync(card.Path);
         Assert.IsNotNull(scan);
@@ -51,7 +51,7 @@ public sealed class StorageEjectWorkflowTests
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
         var eject = new RecordingEjectService(StorageEjectResult.Failed("別のアプリが使用中です"));
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots, eject);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, eject, new TestPreferencesStore());
 
         await viewModel.ScanCardAsync(card.Path);
         viewModel.SetDestinationFromPicker(destination.Path);
@@ -78,7 +78,7 @@ public sealed class StorageEjectWorkflowTests
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
         var eject = new RecordingEjectService(StorageEjectResult.Succeeded("取り出しました"));
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots, eject);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, eject, new TestPreferencesStore());
 
         await viewModel.ScanCardAsync(card.Path);
         viewModel.SetDestinationFromPicker(destination.Path);

@@ -23,7 +23,7 @@ public sealed class PendingCardQueueTests
         ]);
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, new TestPreferencesStore());
 
         var firstScan = viewModel.ScanCardAsync(emptyCard, autoDetected: true);
         Assert.IsTrue(
@@ -64,7 +64,7 @@ public sealed class PendingCardQueueTests
         ]);
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, new TestPreferencesStore());
 
         var firstScan = viewModel.ScanCardAsync(brokenCard, autoDetected: true);
         Assert.IsTrue(
@@ -106,7 +106,7 @@ public sealed class PendingCardQueueTests
         ]);
         var sessions = new StorageSessionTracker(provider);
         var roots = new CameraCardRootResolver(provider);
-        using var viewModel = new MainWindowViewModel(provider, sessions, roots);
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, new TestPreferencesStore());
 
         var firstScan = viewModel.ScanCardAsync(emptyCard, autoDetected: true);
         Assert.IsTrue(
