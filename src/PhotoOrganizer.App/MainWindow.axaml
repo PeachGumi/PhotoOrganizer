@@ -212,11 +212,12 @@
                   Background="{StaticResource WarningSurfaceBrush}"
                   BorderBrush="#6C5332"
                   AutomationProperties.Name="入力内容の確認">
+            <!-- Avalonia macOS can abort in raiseLiveRegionChanged when this warning becomes empty/hidden.
+                 Keep normal accessibility; announce workflow changes through the persistent headline instead. -->
             <TextBlock Text="{Binding InputValidationMessage}"
                        Foreground="{StaticResource WarningBrush}"
                        FontSize="11" TextWrapping="Wrap"
-                       ToolTip.Tip="{Binding InputValidationMessage}"
-                       AutomationProperties.LiveSetting="Assertive" />
+                       ToolTip.Tip="{Binding InputValidationMessage}" />
           </Border>
         </StackPanel>
       </Border>
