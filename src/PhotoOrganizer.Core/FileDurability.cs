@@ -39,6 +39,20 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
         {
             if (OperatingSystem.IsWindows())
             {
+                // Complete all writes and metadata updates while the transaction is
+                // still private. Once MoveFileEx publishes the name, a concurrent
+                // collision lookup may open it with Hashing's restrictive read share;
+                // Windows must not be asked to update that same path afterwards.
+                File.SetLastWriteTimeUtc(temporaryPath, lastWriteUtc);
+                var temporaryDurability = EnsureDurable(temporaryPath);
+                if (!temporaryDurability.Success)
+                {
+                    return new FinalizeFileResult(
+                        FinalizeFileStatus.Failed,
+                        false,
+                        temporaryDurability.Error ?? "Temporary copy could not be committed durably.");
+                }
+
                 if (!MoveFileEx(temporaryPath, finalPath, MoveFileWriteThrough))
                 {
                     var error = Marshal.GetLastPInvokeError();
@@ -52,17 +66,21 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
                         false,
                         $"MOVEFILE_WRITE_THROUGH final move failed ({error}): {new Win32Exception(error).Message}");
                 }
+
+                moved = true;
+                // MOVEFILE_WRITE_THROUGH flushes the already-durable file and the
+                // rename metadata before returning, so no post-publish writer handle
+                // can race a concurrent final-path hash.
+                return new FinalizeFileResult(FinalizeFileStatus.Committed, true);
             }
-            else
+
+            try
             {
-                try
-                {
-                    File.Move(temporaryPath, finalPath, overwrite: false);
-                }
-                catch (IOException) when (File.Exists(finalPath) || Directory.Exists(finalPath))
-                {
-                    return new FinalizeFileResult(FinalizeFileStatus.DestinationExists, false);
-                }
+                File.Move(temporaryPath, finalPath, overwrite: false);
+            }
+            catch (IOException) when (File.Exists(finalPath) || Directory.Exists(finalPath))
+            {
+                return new FinalizeFileResult(FinalizeFileStatus.DestinationExists, false);
             }
 
             moved = true;
