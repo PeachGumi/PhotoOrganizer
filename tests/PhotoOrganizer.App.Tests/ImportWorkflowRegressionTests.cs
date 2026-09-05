@@ -8,6 +8,25 @@ namespace PhotoOrganizer.App.Tests;
 public sealed class ImportWorkflowRegressionTests
 {
     [TestMethod]
+    public async Task DestinationChange_NotifiesUiWhenStorageWarningClears()
+    {
+        using var environment = WorkflowEnvironment.Create();
+        using var viewModel = environment.CreateViewModel();
+        await environment.PrepareAsync(viewModel);
+        viewModel.DestinationPath = Path.Combine(environment.DestinationPaths[0], "missing");
+        await viewModel.ValidateDestinationAsync();
+        Assert.IsTrue(viewModel.HasInputValidationError);
+        var notifications = new List<string?>();
+        viewModel.PropertyChanged += (_, change) => notifications.Add(change.PropertyName);
+
+        viewModel.DestinationPath = environment.DestinationPaths[0];
+
+        Assert.IsFalse(viewModel.HasInputValidationError);
+        CollectionAssert.Contains(notifications, nameof(MainWindowViewModel.InputValidationMessage));
+        CollectionAssert.Contains(notifications, nameof(MainWindowViewModel.HasInputValidationError));
+    }
+
+    [TestMethod]
     public async Task StartImportAsync_IsBusyBeforeDestinationValidationCompletes()
     {
         using var environment = WorkflowEnvironment.Create();

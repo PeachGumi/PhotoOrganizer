@@ -110,7 +110,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         {
             if (!SetField(ref _destinationPath, value)) return;
             DestinationNeedsReselection = false;
-            _destinationStorageValidationMessage = string.Empty;
+            SetDestinationStorageValidationMessage(string.Empty);
             ClearCompletion();
             IsSafeToReuseCurrentCard = false;
             RefreshLightweightInputValidation();
