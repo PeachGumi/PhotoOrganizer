@@ -49,6 +49,9 @@ Use disposable/test media with independent ground-truth copies. Do not begin acc
 - [ ] Destination on the camera card, or a parent/child path overlapping the card, is rejected before copying.
 - [ ] Destination on another folder of the same physical volume is rejected.
 - [ ] On a disposable multi-partition test device, selecting a different partition/volume on the **same physical device** as the camera card is rejected before copying on both Windows and macOS.
+- [ ] On macOS, separate APFS containers on the same disposable physical disk resolve to the same physical fingerprint and are rejected as independent source/destination devices.
+- [ ] On macOS, a mounted disk image or RAM disk cannot establish physical independence and cannot authorize card reuse.
+- [ ] On Windows, a file-backed VHD and a Storage Spaces virtual disk cannot establish physical independence; ordinary USB/SD/SATA/NVMe storage continues to resolve correctly through `MSFT_Disk.BusType`.
 - [ ] A camera card whose physical-device identity cannot be established remains blocked rather than becoming import-ready; a destination whose physical-device identity cannot be established is likewise rejected before copying.
 - [ ] After import, every source file remains byte-identical and at the same source path; the app has not deleted, moved, renamed, modified, or overwritten any source media.
 - [ ] Existing destination file with the same name but different bytes is preserved; imported data receives `_2`, `_3`, etc.

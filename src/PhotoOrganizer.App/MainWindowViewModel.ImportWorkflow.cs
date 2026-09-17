@@ -12,6 +12,7 @@ public sealed partial class MainWindowViewModel
         string destination;
         string eventName;
         CancellationTokenSource importCancellation;
+        StorageSessionIdentity destinationIdentity;
 
         lock (_importStartGate)
         {
@@ -42,7 +43,7 @@ public sealed partial class MainWindowViewModel
 
             await ValidateDestinationAsync().ConfigureAwait(true);
             importCancellation.Token.ThrowIfCancellationRequested();
-            if (!IsCurrentImportInput(session, destination, eventName))
+            if (!IsCurrentImportInput(session, destination, eventName, destinationIdentity: null))
             {
                 HandleImportInputChanged();
                 return;
@@ -52,6 +53,18 @@ public sealed partial class MainWindowViewModel
             {
                 SetProgressState("入力内容を確認してください");
                 RaiseCommandState();
+                return;
+            }
+
+            try
+            {
+                destinationIdentity = _storageSessions.Capture(destination)
+                    ?? throw new InvalidOperationException("Destination storage identity is unavailable.");
+            }
+            catch (Exception exception)
+            {
+                HandleImportInputChanged();
+                AppendLog($"保存先の接続状態が変化したため取り込みを開始できませんでした: {exception.Message}");
                 return;
             }
 
@@ -89,7 +102,7 @@ public sealed partial class MainWindowViewModel
             if (_disposed) return;
 
             importCancellation.Token.ThrowIfCancellationRequested();
-            if (!IsCurrentImportInput(session, destination, eventName))
+            if (!IsCurrentImportInput(session, destination, eventName, destinationIdentity))
             {
                 HandleImportInputChanged();
                 return;
@@ -156,17 +169,10 @@ public sealed partial class MainWindowViewModel
             {
                 RaiseCommandState();
 
-                if (_scanSession is null)
-                {
-                    try
-                    {
-                        await ScanNextPendingIfPossibleAsync().ConfigureAwait(true);
-                    }
-                    catch (Exception exception)
-                    {
-                        ReportOperationFailure("待機中SDカードのスキャン", exception);
-                    }
-                }
+                // Pending cards advance from a successful, completed card-removal
+                // path. An import failure, cancellation, or storage removal must
+                // leave the blocked state visible instead of silently switching
+                // the active card here.
             }
         }
     }
@@ -174,10 +180,12 @@ public sealed partial class MainWindowViewModel
     private bool IsCurrentImportInput(
         ImportScanSession session,
         string destination,
-        string eventName)
+        string eventName,
+        StorageSessionIdentity? destinationIdentity)
     {
         if (_disposed
             || !ReferenceEquals(session, _scanSession)
+            || DestinationNeedsReselection
             || !string.Equals(destination, DestinationPath, StringComparison.Ordinal)
             || !string.Equals(eventName, EventName.Trim(), StringComparison.Ordinal)
             || !string.Equals(session.CardRoot, SelectedSdContextPath, _storageSessions.PathComparison)
@@ -188,7 +196,8 @@ public sealed partial class MainWindowViewModel
 
         try
         {
-            return _storageSessions.Matches(session.SourceIdentity, session.CardRoot);
+            return _storageSessions.Matches(session.SourceIdentity, session.CardRoot)
+                && (destinationIdentity is null || _storageSessions.Matches(destinationIdentity, destination));
         }
         catch
         {

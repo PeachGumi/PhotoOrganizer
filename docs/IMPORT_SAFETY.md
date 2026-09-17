@@ -36,7 +36,7 @@ A new supported file that appears on the card after copying is intentionally inc
 
 ## Filesystem boundaries
 
-Source scans, destination-library searches, and final verification never descend into another mounted volume nested under the selected root. Reparse points/symlinks and hidden directories are skipped. This prevents a camera card mounted below a destination tree from accidentally proving its own backup.
+Source scans, destination-library searches, and final verification never descend into another mounted volume nested under the selected root. Reparse points/symlinks are skipped. Hidden and dot-prefixed directories remain in scan scope so supported media cannot be omitted. The mounted-volume boundary prevents a camera card mounted below a destination tree from accidentally proving its own backup.
 
 ## Source immutability
 

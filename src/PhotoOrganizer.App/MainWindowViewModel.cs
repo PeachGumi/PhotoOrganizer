@@ -25,6 +25,9 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     private CancellationTokenSource? _importCancellation;
     private bool _isScanning;
     private bool _isProcessing;
+    private bool _isEjecting;
+    private ImportScanSession? _ejectingSession;
+    private bool _ejectRemovalObserved;
     private bool _isSafeToReuseCurrentCard;
     private bool _destinationNeedsReselection;
     private bool _disposed;
@@ -303,8 +306,9 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     }
 
     public bool AutoStartSupported => _startupRegistration.IsSupported;
-    public bool IsBusy => _isScanning || _isProcessing;
+    public bool IsBusy => _isScanning || _isProcessing || _isEjecting;
     public bool IsProcessing => _isProcessing;
+    public bool IsEjecting => _isEjecting;
     public bool HasSelectedSd => !string.IsNullOrWhiteSpace(SelectedSdContextPath);
     public bool ShowMediaSummary => _scanSession is not null;
     public string SelectedSdDisplay => HasSelectedSd ? SelectedSdContextPath : "未選択";
@@ -315,7 +319,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         && _scanSession is not null
         && !string.IsNullOrWhiteSpace(DestinationPath)
         && !string.IsNullOrWhiteSpace(EventName);
-    public bool CanCancel => IsBusy;
+    public bool CanCancel => _isScanning || _isProcessing;
     public int PendingSdCount => _pendingCards.Count;
     public bool HasPendingCards => PendingSdCount > 0;
     public string PendingSdText => PendingSdCount == 0
@@ -328,6 +332,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         {
             if (_isScanning) return "SDカードを確認しています";
             if (_isProcessing) return "取り込みと安全確認を実行しています";
+            if (_isEjecting) return "SDカードを取り出しています";
             if (IsSafeToReuseCurrentCard && _scanSession is not null) return "取り込みと検証が完了しました";
             if (_scanSession is null && HasSelectedSd) return "SDカードを再選択してください";
             if (_scanSession is null) return "SDカードを選択してください";
@@ -351,6 +356,11 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
             if (_isProcessing)
             {
                 return "コピー後にSDカードを再スキャンし、保存先の実ファイルとSHA-256を照合します。完了表示までカードを取り外さないでください。";
+            }
+
+            if (_isEjecting)
+            {
+                return "SDカードを安全に取り出しています。完了するまでカードや保存先を変更しないでください。";
             }
 
             if (IsSafeToReuseCurrentCard && _scanSession is not null)
@@ -546,17 +556,17 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         switch (update.Phase)
         {
             case ImportProgressPhase.Copying:
-            {
-                var total = Math.Max(1, update.Total);
-                var isComplete = update.Current >= update.Total;
-                var displayCurrent = isComplete ? update.Total : Math.Min(update.Current + 1, update.Total);
-                SetProgressState(
-                    isComplete ? "コピー完了 — SDカードの安全確認へ進みます" : $"コピー中 {displayCurrent} / {update.Total}",
-                    update.Current,
-                    total,
-                    indeterminate: false);
-                break;
-            }
+                {
+                    var total = Math.Max(1, update.Total);
+                    var isComplete = update.Current >= update.Total;
+                    var displayCurrent = isComplete ? update.Total : Math.Min(update.Current + 1, update.Total);
+                    SetProgressState(
+                        isComplete ? "コピー完了 — SDカードの安全確認へ進みます" : $"コピー中 {displayCurrent} / {update.Total}",
+                        update.Current,
+                        total,
+                        indeterminate: false);
+                    break;
+                }
             case ImportProgressPhase.Rescanning:
                 SetProgressState("SDカードを再スキャン中…", 0, Math.Max(1, update.Total), indeterminate: true);
                 break;
@@ -710,6 +720,7 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
     {
         OnPropertyChanged(nameof(IsBusy));
         OnPropertyChanged(nameof(IsProcessing));
+        OnPropertyChanged(nameof(IsEjecting));
         OnPropertyChanged(nameof(CanImport));
         OnPropertyChanged(nameof(CanCancel));
         OnPropertyChanged(nameof(CanEjectSelectedSd));

@@ -95,7 +95,7 @@ Path strings alone are not storage identity. Unmount/remount, same-letter replac
 
 Platform adapters are responsible for mounted-volume, physical-device, and process-local mount-session identities that fail closed when required identity cannot be established.
 
-On macOS, fresh Disk Arbitration queries replace per-volume `diskutil` subprocesses; this optimization must not cache successful identities or skip per-file storage checks. Changing the destination input clears prior reuse approval and the completion target.
+On macOS, fresh Disk Arbitration and IOKit queries replace per-volume `diskutil` subprocesses; this optimization must not cache successful identities or skip per-file storage checks. Physical identity follows the IOKit ancestry past synthesized APFS containers to the physical block device. Ambiguous/composited ancestry and virtual devices fail closed. Changing the destination input clears prior reuse approval and the completion target.
 
 ## Multi-card behavior
 

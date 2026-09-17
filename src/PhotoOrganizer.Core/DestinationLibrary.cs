@@ -108,6 +108,12 @@ public sealed class DestinationLibrary
                 return new LookupResult(false, errors);
             }
 
+            if (!PathSafety.TryValidateDirectFilesystemPath(source, out var sourcePathError))
+            {
+                errors.Add($"{source}: source path is not direct: {sourcePathError}");
+                return new LookupResult(false, errors);
+            }
+
             // Size is only a cheap prefilter. If no destination file has the same
             // size there is no possible byte-identical backup, so avoid reading the
             // source solely to compute a SHA-256 that cannot match anything.
@@ -123,6 +129,13 @@ public sealed class DestinationLibrary
             foreach (var candidate in candidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                if (!PathSafety.TryValidateDirectFilesystemPath(candidate, out var candidatePathError))
+                {
+                    errors.Add($"{candidate}: destination path is not direct: {candidatePathError}");
+                    continue;
+                }
+
                 if (PathComparer.Instance.Equals(Path.GetFullPath(candidate), source)) continue;
 
                 try
@@ -136,6 +149,15 @@ public sealed class DestinationLibrary
 
                     if (string.Equals(sourceHash, candidateHash, StringComparison.Ordinal))
                     {
+                        // The hash task may have outlived the first path check and
+                        // read through a replacement alias. Re-check before a
+                        // duplicate lookup can report a source alias as a backup.
+                        if (!PathSafety.TryValidateDirectFilesystemPath(candidate, out candidatePathError))
+                        {
+                            errors.Add($"{candidate}: destination path changed during hashing: {candidatePathError}");
+                            continue;
+                        }
+
                         return new LookupResult(true, errors);
                     }
                 }

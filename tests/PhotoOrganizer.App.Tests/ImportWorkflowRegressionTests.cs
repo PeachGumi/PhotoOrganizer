@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using PhotoOrganizer.Core;
 
@@ -133,6 +134,60 @@ public sealed class ImportWorkflowRegressionTests
     }
 
     [TestMethod]
+    public async Task StartImportAsync_DestinationRemovalDuringValidationCannotPublishReuseApproval()
+    {
+        using var environment = WorkflowEnvironment.Create();
+        using var viewModel = environment.CreateViewModel();
+        await environment.PrepareAsync(viewModel);
+        await viewModel.ValidateDestinationAsync();
+
+        environment.Provider.BlockNextEnumeration();
+        var import = viewModel.StartImportAsync();
+        Assert.IsTrue(
+            environment.Provider.EnumerationBlocked.Wait(TimeSpan.FromSeconds(5)),
+            "The import did not reach destination validation.");
+
+        // Deliver the view-model notification directly. MarkRemoved serializes with
+        // the deliberately blocked provider refresh and would only test that gate.
+        await InvokeVolumeRemovalAsync(viewModel, environment.DestinationPaths[0]);
+        environment.Provider.ReleaseEnumeration.Set();
+        await import.WaitAsync(TimeSpan.FromSeconds(15));
+
+        Assert.IsFalse(viewModel.IsSafeToReuseCurrentCard);
+        Assert.IsFalse(viewModel.HasCompletedImport);
+        Assert.IsTrue(viewModel.DestinationNeedsReselection);
+        Assert.AreEqual("取り込みキャンセル", viewModel.ProgressLabel);
+    }
+
+    [TestMethod]
+    public async Task StartImportAsync_SourceRemovalDoesNotDrainPendingCardsAfterFailure()
+    {
+        using var environment = WorkflowEnvironment.Create();
+        using var viewModel = environment.CreateViewModel();
+        await environment.PrepareAsync(viewModel);
+
+        environment.Provider.BlockNextEnumeration();
+        var import = viewModel.StartImportAsync();
+        Assert.IsTrue(
+            environment.Provider.EnumerationBlocked.Wait(TimeSpan.FromSeconds(5)),
+            "The import did not reach destination validation.");
+
+        Assert.IsNull(await viewModel.ScanCardAsync(environment.SecondaryCardPath, autoDetected: true));
+        Assert.AreEqual(1, viewModel.PendingSdCount);
+
+        environment.Provider.UnmountCard();
+        environment.Sessions.MarkRemoved(environment.CardPath);
+        await InvokeVolumeRemovalAsync(viewModel, environment.CardPath);
+        environment.Provider.ReleaseEnumeration.Set();
+        await import.WaitAsync(TimeSpan.FromSeconds(15));
+
+        Assert.IsFalse(viewModel.IsSafeToReuseCurrentCard);
+        Assert.IsFalse(viewModel.HasCompletedImport);
+        Assert.AreEqual(1, viewModel.PendingSdCount);
+        Assert.AreEqual(string.Empty, viewModel.SelectedSdPath);
+    }
+
+    [TestMethod]
     public async Task DestinationPathChange_ClearsReuseApprovalAndCompletionState()
     {
         using var environment = WorkflowEnvironment.Create();
@@ -193,6 +248,15 @@ public sealed class ImportWorkflowRegressionTests
         Assert.AreEqual(environment.DestinationPaths[0], preferences.Preferences.DestinationPath);
     }
 
+    private static Task InvokeVolumeRemovalAsync(MainWindowViewModel viewModel, string root)
+    {
+        var method = typeof(MainWindowViewModel).GetMethod(
+            "HandleVolumeRemovedAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(method);
+        return (Task)method!.Invoke(viewModel, [root])!;
+    }
+
     private sealed class WorkflowEnvironment : IDisposable
     {
         private WorkflowEnvironment(
@@ -209,13 +273,16 @@ public sealed class ImportWorkflowRegressionTests
 
         private string Root { get; }
         public string CardPath { get; }
+        public string SecondaryCardPath { get; private set; } = string.Empty;
         public IReadOnlyList<string> DestinationPaths { get; }
         public ControlledVolumeProvider Provider { get; }
+        public StorageSessionTracker Sessions { get; private set; } = null!;
 
         public static WorkflowEnvironment Create()
         {
             var root = Path.Combine(Path.GetTempPath(), $"PhotoOrganizerAppWorkflow-{Guid.NewGuid():N}");
             var card = Path.Combine(root, "card");
+            var secondaryCard = Path.Combine(root, "secondary-card");
             var destinations = new[]
             {
                 Path.Combine(root, "destination-a"),
@@ -226,21 +293,28 @@ public sealed class ImportWorkflowRegressionTests
             Directory.CreateDirectory(media);
             File.WriteAllBytes(Path.Combine(media, "photo.jpg"), [1, 2, 3, 4]);
             File.SetLastWriteTime(Path.Combine(media, "photo.jpg"), new DateTime(2026, 3, 4));
+            Directory.CreateDirectory(Path.Combine(secondaryCard, "DCIM"));
             foreach (var destination in destinations) Directory.CreateDirectory(destination);
 
             var provider = new ControlledVolumeProvider(
                 card,
                 [
                     new MountedVolumeInfo(card, "card-volume", true, false, "card-device"),
+                    new MountedVolumeInfo(secondaryCard, "secondary-card-volume", true, false, "secondary-card-device"),
                     new MountedVolumeInfo(destinations[0], "destination-a-volume", false, false, "destination-a-device"),
                     new MountedVolumeInfo(destinations[1], "destination-b-volume", false, false, "destination-b-device")
                 ]);
-            return new WorkflowEnvironment(root, card, destinations, provider);
+            var environment = new WorkflowEnvironment(root, card, destinations, provider)
+            {
+                SecondaryCardPath = secondaryCard
+            };
+            return environment;
         }
 
         public MainWindowViewModel CreateViewModel()
         {
             var sessions = new StorageSessionTracker(Provider);
+            Sessions = sessions;
             var roots = new CameraCardRootResolver(Provider);
             return new MainWindowViewModel(
                 Provider,

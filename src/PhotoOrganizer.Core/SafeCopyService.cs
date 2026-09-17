@@ -31,6 +31,13 @@ public sealed class SafeCopyService
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!PathSafety.TryValidateDirectFilesystemPath(sourcePath, out var sourcePathError))
+            {
+                return new CopyResult(CopyStatus.Failed, null, $"Source path is not a direct filesystem path: {sourcePathError}");
+            }
+
             if (!File.Exists(sourcePath))
             {
                 return new CopyResult(CopyStatus.Failed, null, "Source file does not exist.");
@@ -60,6 +67,14 @@ public sealed class SafeCopyService
             var sourceLastWriteUtc = sourceInfo.LastWriteTimeUtc;
             var transactionTemporaryPath = Path.Combine(destinationDirectory, $".partial-{Guid.NewGuid():N}");
             string sourceHashDuringCopy;
+
+            // The source path is part of the safety boundary too. Re-check it
+            // immediately before opening the stream in case a previously direct
+            // path was replaced while the destination was being prepared.
+            if (!PathSafety.TryValidateDirectFilesystemPath(sourcePath, out sourcePathError))
+            {
+                return new CopyResult(CopyStatus.Failed, null, $"Source path changed before copying: {sourcePathError}");
+            }
 
             await using (var source = new FileStream(
                              sourcePath,
@@ -99,6 +114,11 @@ public sealed class SafeCopyService
             if (!string.Equals(sourceHashDuringCopy, temporaryHash, StringComparison.Ordinal))
             {
                 return new CopyResult(CopyStatus.Failed, null, "Temporary copy SHA-256 verification failed.");
+            }
+
+            if (!PathSafety.TryValidateDirectFilesystemPath(sourcePath, out sourcePathError))
+            {
+                return new CopyResult(CopyStatus.Failed, null, $"Source path changed while copying: {sourcePathError}");
             }
 
             sourceInfo.Refresh();
@@ -188,6 +208,11 @@ public sealed class SafeCopyService
                 finalPath = resolution.Path;
             }
 
+            if (!PathSafety.TryValidateDirectFilesystemPath(finalPath, out pathError))
+            {
+                return new CopyResult(CopyStatus.Failed, finalPath, $"Final copy path became unsafe: {pathError}");
+            }
+
             var finalInfo = new FileInfo(finalPath);
             if (finalInfo.Length != sourceSize)
             {
@@ -197,6 +222,15 @@ public sealed class SafeCopyService
             var finalHash = await Hashing
                 .Sha256Async(finalPath, cancellationToken)
                 .ConfigureAwait(false);
+
+            // Re-check after the read as well. A replacement between the first
+            // path check and hashing must not turn a source alias into a claimed
+            // independent destination copy.
+            if (!PathSafety.TryValidateDirectFilesystemPath(finalPath, out pathError))
+            {
+                return new CopyResult(CopyStatus.Failed, finalPath, $"Final copy path changed during verification: {pathError}");
+            }
+
             if (!string.Equals(sourceHashDuringCopy, finalHash, StringComparison.Ordinal))
             {
                 return new CopyResult(CopyStatus.Failed, finalPath, "Final copy SHA-256 verification failed.");
@@ -277,6 +311,11 @@ public sealed class SafeCopyService
     private async Task<CopyResult> VerifyExistingDuplicateAsync(
         string path, long sourceSize, string sourceHash, CancellationToken cancellationToken)
     {
+        if (!PathSafety.TryValidateDirectFilesystemPath(path, out var pathError))
+        {
+            return new CopyResult(CopyStatus.Failed, path, $"Existing duplicate path is not direct: {pathError}");
+        }
+
         var durability = _durability.EnsureDurable(path);
         if (!durability.Success)
         {
@@ -284,16 +323,29 @@ public sealed class SafeCopyService
                 durability.Error ?? "Existing duplicate could not be committed durably.");
         }
 
-        if (!PathSafety.TryValidateDirectFilesystemPath(path, out var pathError))
+        if (!PathSafety.TryValidateDirectFilesystemPath(path, out pathError))
         {
             return new CopyResult(CopyStatus.Failed, path, $"Existing duplicate path changed: {pathError}");
         }
 
         var info = new FileInfo(path);
-        if (!info.Exists || info.Length != sourceSize
-            || !string.Equals(sourceHash,
-                await Hashing.Sha256Async(path, cancellationToken).ConfigureAwait(false),
-                StringComparison.Ordinal))
+        if (!info.Exists || info.Length != sourceSize)
+        {
+            return new CopyResult(CopyStatus.Failed, path, "Existing duplicate changed during durable verification.");
+        }
+
+        var freshHash = await Hashing
+            .Sha256Async(path, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!PathSafety.TryValidateDirectFilesystemPath(path, out pathError))
+        {
+            return new CopyResult(CopyStatus.Failed, path, $"Existing duplicate path changed during verification: {pathError}");
+        }
+
+        var freshInfo = new FileInfo(path);
+        if (!freshInfo.Exists || freshInfo.Length != sourceSize
+            || !string.Equals(sourceHash, freshHash, StringComparison.Ordinal))
         {
             return new CopyResult(CopyStatus.Failed, path, "Existing duplicate changed during durable verification.");
         }

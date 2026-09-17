@@ -66,7 +66,6 @@ public sealed class MediaScanner
             foreach (var entry in entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (entry.Name.Length > 0 && entry.Name[0] == '.') continue;
 
                 try
                 {

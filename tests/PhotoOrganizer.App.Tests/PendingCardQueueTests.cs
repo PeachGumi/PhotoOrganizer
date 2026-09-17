@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using PhotoOrganizer.Core;
 
@@ -83,6 +84,12 @@ public sealed class PendingCardQueueTests
         Assert.AreEqual("スキャン失敗", viewModel.ProgressLabel);
         Assert.AreEqual(1, viewModel.PendingSdCount);
         StringAssert.Contains(viewModel.SafetyDetail, "物理デバイス情報");
+
+        sessions.MarkRemoved(brokenCard);
+        await InvokeVolumeRemovalAsync(viewModel, brokenCard);
+
+        Assert.AreEqual(1, viewModel.PendingSdCount);
+        Assert.AreEqual(string.Empty, viewModel.SelectedSdPath);
     }
 
     [TestMethod]
@@ -168,6 +175,15 @@ public sealed class PendingCardQueueTests
             FirstEnumerationEntered.Dispose();
             ReleaseFirstEnumeration.Dispose();
         }
+    }
+
+    private static Task InvokeVolumeRemovalAsync(MainWindowViewModel viewModel, string root)
+    {
+        var method = typeof(MainWindowViewModel).GetMethod(
+            "HandleVolumeRemovedAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(method);
+        return (Task)method!.Invoke(viewModel, [root])!;
     }
 
     private sealed class TempDirectory : IDisposable

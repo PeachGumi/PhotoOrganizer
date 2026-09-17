@@ -53,6 +53,27 @@ public sealed class BoundedProcessRunnerTests
     }
 
     [TestMethod]
+    public void ExitedParentWithOpenDescendantPipes_StillHonorsTimeout()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Inconclusive("This regression uses POSIX shell descriptor inheritance.");
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        // The shell exits immediately, but sleep keeps stdout/stderr open. It is
+        // deliberately short-lived so even the original defect cannot hang a run.
+        var result = RunShell("sleep 3 & exit 0", TimeSpan.FromMilliseconds(150));
+        stopwatch.Stop();
+
+        Assert.IsNotNull(result);
+        Assert.IsTrue(result.TimedOut);
+        Assert.IsTrue(stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"Waiting for descendant pipes exceeded the deadline: {stopwatch.Elapsed}.");
+    }
+
+    [TestMethod]
     public void LargeStderr_DoesNotDeadlockRedirectedPipes()
     {
         var script = OperatingSystem.IsWindows()

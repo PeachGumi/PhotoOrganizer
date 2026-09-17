@@ -6,32 +6,49 @@ namespace PhotoOrganizer.Core.Tests;
 public sealed class HiddenMediaSafetyTests
 {
     [TestMethod]
-    public void DotPrefixedDirectory_IsExcludedFromCompleteScan()
+    public void DotPrefixedDirectorySupportedMedia_IsIncludedInCompleteScan()
     {
         using var temp = new TempDirectory();
-        var hidden = Directory.CreateDirectory(Path.Combine(temp.Path, ".Spotlight-V100"));
-        File.WriteAllText(Path.Combine(hidden.FullName, "metadata.jpg"), "metadata");
+        var hidden = Directory.CreateDirectory(Path.Combine(temp.Path, ".camera-hidden"));
+        var hiddenPhoto = Path.Combine(hidden.FullName, "recoverable.jpg");
+        File.WriteAllText(hiddenPhoto, "hidden-camera-bytes");
         var photo = Path.Combine(temp.Path, "visible.jpg");
         File.WriteAllText(photo, "camera-bytes");
 
         var result = new MediaScanner(new MediaClassifier()).Scan(temp.Path);
 
         Assert.IsTrue(result.IsComplete, string.Join(Environment.NewLine, result.Errors));
-        CollectionAssert.AreEqual(new[] { photo }, result.Files.ToArray());
+        CollectionAssert.AreEquivalent(new[] { hiddenPhoto, photo }, result.Files.ToArray());
     }
 
     [TestMethod]
-    public void DotPrefixedSupportedFile_IsExcludedFromCompleteScan()
+    public void DotPrefixedSupportedFile_IsIncludedInCompleteScan()
     {
         using var temp = new TempDirectory();
-        File.WriteAllText(Path.Combine(temp.Path, "._DSC_0001.JPG"), "apple-double");
+        var hiddenPhoto = Path.Combine(temp.Path, ".hidden-photo.JPG");
+        File.WriteAllText(hiddenPhoto, "hidden-camera-bytes");
         var photo = Path.Combine(temp.Path, "DSC_0001.JPG");
         File.WriteAllText(photo, "camera-bytes");
 
         var result = new MediaScanner(new MediaClassifier()).Scan(temp.Path);
 
         Assert.IsTrue(result.IsComplete, string.Join(Environment.NewLine, result.Errors));
-        CollectionAssert.AreEqual(new[] { photo }, result.Files.ToArray());
+        CollectionAssert.AreEquivalent(new[] { hiddenPhoto, photo }, result.Files.ToArray());
+    }
+
+    [TestMethod]
+    public void DotPrefixedDirectoryZeroByteSupportedMedia_BlocksCompleteScan()
+    {
+        using var temp = new TempDirectory();
+        var hidden = Directory.CreateDirectory(Path.Combine(temp.Path, ".camera-hidden"));
+        var photo = Path.Combine(hidden.FullName, "broken.nef");
+        File.WriteAllBytes(photo, []);
+
+        var result = new MediaScanner(new MediaClassifier()).Scan(temp.Path);
+
+        Assert.IsFalse(result.IsComplete);
+        CollectionAssert.Contains(result.Files.ToList(), photo);
+        Assert.IsTrue(result.Errors.Any(error => error.Contains("zero bytes", StringComparison.OrdinalIgnoreCase)));
     }
 
     [TestMethod]

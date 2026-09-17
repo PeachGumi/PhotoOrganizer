@@ -9,6 +9,8 @@ public static class Hashing
 
     public static async Task<string> Sha256Async(string path, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         await using var stream = new FileStream(
             path,
             FileMode.Open,

@@ -60,10 +60,46 @@ public sealed partial class MainWindowViewModel
                 scanCancellation.Token).ConfigureAwait(true);
             if (_disposed) return null;
 
+            // The storage monitor can observe removal/replacement while the scan
+            // result is waiting to resume on the UI thread. Core validates the
+            // identity before returning, but that proof must still be current when
+            // the result is published to the workflow state.
+            if (result.IsReady && (result.Session is null || !IsCurrentScanResult(result.Session)))
+            {
+                var blocked = result with
+                {
+                    Status = ImportSafetyStatus.Blocked,
+                    Session = null,
+                    Message = "The camera-card volume changed before the scan result could be published.",
+                    FailureReason = ScanFailureReason.StorageChanged
+                };
+                SetBlocked(GetScanFailureMessage(blocked));
+                SetProgressState("スキャン失敗");
+                AppendLog($"スキャン失敗: {GetScanFailureMessage(blocked)}");
+                return blocked;
+            }
+
             if (!result.IsReady)
             {
                 if (autoDetected && result.IsNoSupportedMedia)
                 {
+                    // A removed card may still have produced a benign no-media
+                    // result just before the monitor callback ran. Do not let that
+                    // stale result advance the pending-card queue.
+                    if (!Directory.Exists(path))
+                    {
+                        var blocked = result with
+                        {
+                            Status = ImportSafetyStatus.Blocked,
+                            Message = "The camera-card volume disappeared before the scan result could be published.",
+                            FailureReason = ScanFailureReason.StorageChanged
+                        };
+                        SetBlocked(GetScanFailureMessage(blocked));
+                        SetProgressState("スキャン失敗");
+                        AppendLog($"スキャン失敗: {GetScanFailureMessage(blocked)}");
+                        return blocked;
+                    }
+
                     continuePendingAfterScan = true;
                     ClearScanSession();
                     AppendLog($"自動選択スキップ（対象メディアなし）: {path}");
@@ -193,19 +229,47 @@ public sealed partial class MainWindowViewModel
             && PathSafety.IsSameOrDescendant(selectedRoot, root, _storageSessions.PathComparison);
         var destinationRemoved = !string.IsNullOrWhiteSpace(DestinationPath)
             && PathSafety.IsSameOrDescendant(DestinationPath, root, _storageSessions.PathComparison);
-
-        if (selectedRemoved)
+        var expectedEjectRemoval = selectedRemoved
+            && _isEjecting
+            && _ejectingSession is not null
+            && ReferenceEquals(_ejectingSession, _scanSession);
+        // A stale removal callback can arrive after a same-path replacement has
+        // already been scanned. Keep the newer session when its identity still
+        // matches the currently mounted volume.
+        if (selectedRemoved
+            && !expectedEjectRemoval
+            && _scanSession is not null
+            && IsCurrentSession(_scanSession))
         {
+            selectedRemoved = false;
+        }
+        var shouldDrainPendingAfterRemoval = selectedRemoved
+            && !IsBusy
+            && IsSafeToReuseCurrentCard;
+
+        if (expectedEjectRemoval)
+        {
+            _ejectRemovalObserved = true;
+            IsSafeToReuseCurrentCard = false;
+            SetNotVerified("SDカードの取り外しを確認中です。処理完了までカードを再利用しないでください。");
+            AppendLog("SDカード取り外しを検出しました。安全な取り出し処理の完了を待っています。");
+        }
+        else if (selectedRemoved)
+        {
+            CancelActiveOperation("SDカード取り外し");
             ClearScanSession();
             SetBlocked("処理対象のSDカードが取り外されました。必要な確認が完了していないため、処理結果を再確認してください。");
+            ShowSafetyPanel = true;
             SetProgressState("SDカードが取り外されました");
             AppendLog("SDカード取り外し: スキャン結果と安全確認状態をリセットしました。");
         }
 
         if (destinationRemoved)
         {
+            CancelActiveOperation("保存先取り外し");
             IsSafeToReuseCurrentCard = false;
             DestinationNeedsReselection = true;
+            ClearCompletion();
             SetBlocked("保存先ボリュームが取り外されました。保存先を再確認して取り込み・検証をやり直してください。");
             if (!IsBusy) SetProgressState("保存先を再確認してください");
             AppendLog("保存先ボリューム取り外し: 安全確認状態をリセットしました。");
@@ -216,9 +280,43 @@ public sealed partial class MainWindowViewModel
             AppendLog("警告: 処理中に使用ストレージが取り外されました。最終判定はfail-closedになります。");
         }
 
-        if (selectedRemoved && !IsBusy)
+        if (shouldDrainPendingAfterRemoval)
         {
             await ScanNextPendingIfPossibleAsync().ConfigureAwait(true);
+        }
+    }
+
+    private bool IsCurrentScanResult(ImportScanSession session)
+    {
+        if (_disposed || !_isScanning) return false;
+
+        return IsCurrentSession(session);
+    }
+
+    private bool IsCurrentSession(ImportScanSession session)
+    {
+        if (_disposed) return false;
+
+        try
+        {
+            return _storageSessions.Matches(session.SourceIdentity, session.CardRoot);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void CancelActiveOperation(string operation)
+    {
+        try
+        {
+            if (_isScanning) _scanCancellation?.Cancel();
+            if (_isProcessing) _importCancellation?.Cancel();
+        }
+        catch (Exception exception)
+        {
+            ReportOperationFailure($"{operation}キャンセル", exception);
         }
     }
 

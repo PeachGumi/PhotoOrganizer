@@ -157,6 +157,23 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
             // one unambiguous physical-device identity. Fail closed rather than risk
             // accepting a destination that overlaps the camera-card disk.
             if (diskIndices.Count != 1) return null;
+
+            // A disk number also exists for VHDs and Storage Spaces. It proves
+            // physical independence only when the OS identifies a physical bus.
+            using var diskSearcher = new ManagementObjectSearcher(
+                @"root\Microsoft\Windows\Storage",
+                $"SELECT BusType FROM MSFT_Disk WHERE Number = {diskIndices.Min.ToString(CultureInfo.InvariantCulture)}");
+            using var disks = diskSearcher.Get();
+            if (disks.Count != 1) return null;
+            foreach (ManagementObject disk in disks)
+            {
+                using (disk)
+                {
+                    var value = disk["BusType"];
+                    if (value is null || !IsIndependentPhysicalBusType(Convert.ToUInt16(value, CultureInfo.InvariantCulture)))
+                        return null;
+                }
+            }
             return $"windows-physical-disk:{diskIndices.Min}";
         }
         catch
@@ -166,6 +183,11 @@ public sealed class PlatformStorageVolumeProvider : IStorageVolumeProvider
 
         return null;
     }
+
+    // MSFT_Disk bus types: unknown, RAID/iSCSI, virtual/file-backed, and Storage
+    // Spaces do not expose a single independent physical device through this adapter.
+    internal static bool IsIndependentPhysicalBusType(ushort busType) =>
+        busType is >= 1 and <= 7 or >= 10 and <= 13 or 17;
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

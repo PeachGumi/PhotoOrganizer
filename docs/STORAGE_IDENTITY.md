@@ -4,8 +4,8 @@ Photo Organizer must never treat a path string, drive letter, mount point, persi
 
 The unified app therefore separates three concepts:
 
-1. **OS volume fingerprint** — a Windows volume GUID or, on macOS, a persistent filesystem/partition UUID reported by `diskutil info -plist` when available. macOS falls back to the current BSD `DeviceIdentifier` only when no persistent UUID is exposed.
-2. **Physical storage fingerprint** — the Windows physical-disk mapping or macOS `ParentWholeDisk`/whole-disk identifier. Source and destination must resolve to different physical storage devices.
+1. **OS volume fingerprint** — a Windows volume GUID or, on macOS, a persistent filesystem/partition UUID reported by Disk Arbitration when available. macOS falls back to the current BSD device name only when no persistent UUID is exposed.
+2. **Physical storage fingerprint** — the Windows physical-disk mapping with a confirmed physical `MSFT_Disk.BusType`, or macOS physical whole-disk identifier established through IOKit ancestry. Source and destination must resolve to different physical storage devices. VHD/virtual disks, Storage Spaces, unknown buses, and RAID/iSCSI mappings without a single physical-device proof fail closed on Windows. An APFS container's synthesized whole-disk identifier is not a physical-device identity.
 3. **Process-local mount session ID** — a random identifier created when a mounted volume is first observed. It is discarded on removal or fingerprint/physical-device change and is never persisted.
 
 A safety approval can only remain valid while the volume fingerprint, physical storage fingerprint, and current mount-session ID match. Removal followed by reinsertion creates a new session ID even for the same physical card when the removal is observed.
@@ -14,7 +14,11 @@ A safety approval can only remain valid while the volume fingerprint, physical s
 
 Windows uses `Win32_VolumeChangeEvent` with a one-second enumeration fallback. macOS watches `/Volumes` with `FileSystemWatcher` and also uses the same periodic fallback. Removal events explicitly invalidate the old session before refreshing current mounts.
 
-On macOS each enumeration uses one bounded `diskutil info -plist` operation per mounted volume to obtain both the volume and whole-disk identities. Redirected output is drained asynchronously and a timed-out child process is killed; storage identity collection must not block indefinitely on a failing filesystem. The persistent UUID is a fingerprint only: it never substitutes for the process-local mount-session ID.
+On macOS each enumeration queries Disk Arbitration and IOKit directly, without subprocesses or a successful-identity cache. IOKit ancestry is followed through APFS containers to the physical block device. Ambiguous parent chains, composited APFS storage, and file-backed or RAM virtual devices cannot establish an independent physical fingerprint. The persistent UUID is a fingerprint only: it never substitutes for the process-local mount-session ID.
+
+Native identity tests compare the result against fresh `diskutil` information, following `APFSPhysicalStores` to the actual backing disk rather than using the synthesized container's `ParentWholeDisk`. A disposable disk-image test checks that a volume identity alone does not establish physical independence.
+
+The platform definitions are documented in Microsoft's [MSFT_Disk reference](https://learn.microsoft.com/en-us/windows-hardware/drivers/storage/msft-disk) and Apple's [IOStorage protocol characteristics](https://github.com/apple-oss-distributions/IOStorageFamily/blob/main/IOStorageProtocolCharacteristics.h). Apple's `Virtual Interface` interconnect explicitly includes file-backed and RAM storage.
 
 ## Fail-closed rules
 

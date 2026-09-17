@@ -39,6 +39,22 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
 
         try
         {
+            if (!PathSafety.TryValidateDirectFilesystemPath(temporaryPath, out var temporaryPathError))
+            {
+                return new FinalizeFileResult(
+                    FinalizeFileStatus.Failed,
+                    false,
+                    $"Temporary copy path is not direct: {temporaryPathError}");
+            }
+
+            if (!PathSafety.TryValidateDirectFilesystemPath(finalPath, out var finalPathError))
+            {
+                return new FinalizeFileResult(
+                    FinalizeFileStatus.Failed,
+                    false,
+                    $"Final copy path is not direct: {finalPathError}");
+            }
+
             if (OperatingSystem.IsWindows())
             {
                 // Complete all writes and metadata updates while the transaction is
@@ -108,6 +124,14 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
                 }
 
                 moved = true;
+                if (!PathSafety.TryValidateDirectFilesystemPath(finalPath, out finalPathError))
+                {
+                    return new FinalizeFileResult(
+                        FinalizeFileStatus.Failed,
+                        true,
+                        $"Final copy path changed before durability synchronization: {finalPathError}");
+                }
+
                 // The exclusive rename publishes an already-durable immutable file.
                 // No post-publish writer handle is needed; this final read-only
                 // durability pass persists the new directory entry and file state.
@@ -133,6 +157,14 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
             }
 
             moved = true;
+            if (!PathSafety.TryValidateDirectFilesystemPath(finalPath, out finalPathError))
+            {
+                return new FinalizeFileResult(
+                    FinalizeFileStatus.Failed,
+                    true,
+                    $"Final copy path changed before metadata update: {finalPathError}");
+            }
+
             File.SetLastWriteTimeUtc(finalPath, lastWriteUtc);
 
             var durability = EnsureDurable(finalPath);
@@ -160,6 +192,11 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
         try
         {
             var fullPath = Path.GetFullPath(filePath);
+            if (!PathSafety.TryValidateDirectFilesystemPath(fullPath, out var pathError))
+            {
+                return new DurabilityResult(false, $"Destination path is not direct: {pathError}");
+            }
+
             if (!File.Exists(fullPath))
             {
                 return new DurabilityResult(false, "Destination file no longer exists while establishing durability.");

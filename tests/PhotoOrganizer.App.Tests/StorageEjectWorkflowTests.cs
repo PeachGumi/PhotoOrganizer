@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using PhotoOrganizer.Core;
 
@@ -94,6 +95,90 @@ public sealed class StorageEjectWorkflowTests
         StringAssert.Contains(viewModel.SafetyDetail, "物理デバイス情報が変化");
     }
 
+    [TestMethod]
+    public async Task EjectInFlight_BlocksConcurrentWorkflowAndDuplicateEject()
+    {
+        using var card = new TempDirectory("photo-organizer-eject-card-");
+        using var destination = new TempDirectory("photo-organizer-eject-destination-");
+        var mediaDirectory = Directory.CreateDirectory(Path.Combine(card.Path, "DCIM", "100CAM")).FullName;
+        await File.WriteAllBytesAsync(Path.Combine(mediaDirectory, "photo.jpg"), [1, 2, 3, 4]);
+
+        var provider = new TestVolumeProvider(card.Path, destination.Path);
+        var sessions = new StorageSessionTracker(provider);
+        var roots = new CameraCardRootResolver(provider);
+        var eject = new BlockingEjectService(StorageEjectResult.Succeeded("取り出しました"));
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, eject, new TestPreferencesStore());
+
+        await viewModel.ScanCardAsync(card.Path);
+        viewModel.SetDestinationFromPicker(destination.Path);
+        viewModel.EventName = "撮影";
+        await viewModel.StartImportAsync();
+
+        var firstEject = viewModel.EjectSelectedSdAsync();
+        Assert.IsTrue(eject.Started.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(viewModel.IsBusy);
+        Assert.IsTrue(viewModel.IsEjecting);
+        Assert.IsFalse(viewModel.CanEjectSelectedSd);
+        Assert.IsFalse(viewModel.CanCancel);
+
+        var duplicateEject = viewModel.EjectSelectedSdAsync();
+        Assert.IsTrue(duplicateEject.IsCompleted);
+        await duplicateEject;
+
+        viewModel.SetDestinationFromPicker(destination.Path + "-changed");
+        Assert.AreEqual(destination.Path, viewModel.DestinationPath);
+
+        eject.Release.Set();
+        await firstEject.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.IsFalse(viewModel.IsBusy);
+        Assert.IsFalse(viewModel.IsEjecting);
+        Assert.IsFalse(viewModel.HasSelectedSd);
+    }
+
+    [TestMethod]
+    public async Task ExpectedRemovalDuringEject_WaitsForPlatformResultBeforeClearingState()
+    {
+        using var card = new TempDirectory("photo-organizer-eject-card-");
+        using var destination = new TempDirectory("photo-organizer-eject-destination-");
+        var mediaDirectory = Directory.CreateDirectory(Path.Combine(card.Path, "DCIM", "100CAM")).FullName;
+        await File.WriteAllBytesAsync(Path.Combine(mediaDirectory, "photo.jpg"), [1, 2, 3, 4]);
+
+        var provider = new TestVolumeProvider(card.Path, destination.Path);
+        var sessions = new StorageSessionTracker(provider);
+        var roots = new CameraCardRootResolver(provider);
+        var eject = new BlockingEjectService(StorageEjectResult.Succeeded("取り出しました"));
+        using var viewModel = new MainWindowViewModel(provider, sessions, roots, eject, new TestPreferencesStore());
+
+        await viewModel.ScanCardAsync(card.Path);
+        viewModel.SetDestinationFromPicker(destination.Path);
+        viewModel.EventName = "撮影";
+        await viewModel.StartImportAsync();
+
+        var ejectTask = viewModel.EjectSelectedSdAsync();
+        Assert.IsTrue(eject.Started.Wait(TimeSpan.FromSeconds(5)));
+
+        sessions.MarkRemoved(card.Path);
+        await InvokeVolumeRemovalAsync(viewModel, card.Path);
+        Assert.IsTrue(viewModel.HasSelectedSd);
+        Assert.IsFalse(viewModel.IsSafeToReuseCurrentCard);
+
+        eject.Release.Set();
+        await ejectTask.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.IsFalse(viewModel.HasSelectedSd);
+        Assert.AreEqual("SDカードを安全に取り出しました", viewModel.ProgressLabel);
+    }
+
+    private static Task InvokeVolumeRemovalAsync(MainWindowViewModel viewModel, string root)
+    {
+        var method = typeof(MainWindowViewModel).GetMethod(
+            "HandleVolumeRemovedAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(method);
+        return (Task)method!.Invoke(viewModel, [root])!;
+    }
+
     private sealed class RecordingEjectService(StorageEjectResult result) : IStorageEjectService
     {
         public bool IsSupported => true;
@@ -102,6 +187,24 @@ public sealed class StorageEjectWorkflowTests
         public StorageEjectResult Eject(MountedVolumeInfo volume)
         {
             RequestedRoot = volume.RootPath;
+            return result;
+        }
+    }
+
+    private sealed class BlockingEjectService(StorageEjectResult result) : IStorageEjectService
+    {
+        public bool IsSupported => true;
+        public ManualResetEventSlim Started { get; } = new(false);
+        public ManualResetEventSlim Release { get; } = new(false);
+
+        public StorageEjectResult Eject(MountedVolumeInfo volume)
+        {
+            Started.Set();
+            if (!Release.Wait(TimeSpan.FromSeconds(10)))
+            {
+                throw new TimeoutException("The eject operation was not released.");
+            }
+
             return result;
         }
     }
