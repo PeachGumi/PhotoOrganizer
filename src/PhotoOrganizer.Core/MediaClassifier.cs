@@ -33,6 +33,12 @@ public sealed class MediaClassifier
 
     public MediaKind? Classify(string path)
     {
+        // AppleDouble sidecars (._DSC_0001.JPG) carry macOS extended attributes, not camera
+        // media. Importing them pollutes the library, and on an SMB destination the sidecar
+        // the client creates for the real file of the same name overwrites the imported copy,
+        // so the final verification can never match those files.
+        if (IsAppleDoubleSidecar(Path.GetFileName(path))) return null;
+
         var extension = NormalizeExtension(Path.GetExtension(path));
 
         // Standard formats are reserved and cannot be reclassified by RAW configuration.
@@ -58,6 +64,9 @@ public sealed class MediaClassifier
         MediaKind.Video => "MP4",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
+
+    private static bool IsAppleDoubleSidecar(string fileName) =>
+        fileName.StartsWith("._", StringComparison.Ordinal);
 
     private static string NormalizeExtension(string extension)
     {

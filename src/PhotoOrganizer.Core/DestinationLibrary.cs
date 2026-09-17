@@ -31,13 +31,15 @@ public sealed class DestinationLibrary
     public async Task<BackupLookupResult> FindVerifiedBackupsAsync(
         IEnumerable<string> sourceFiles,
         string destinationRoot,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IProgress<long>? indexProgress = null)
     {
         var destinationIndex = DestinationFileIndexer.Build(
             destinationRoot,
             _volumeProvider,
             requireExistingRoot: false,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken,
+            progress: indexProgress);
         var errors = destinationIndex.Errors.ToList();
         var destinationHashCache = new AsyncHashCache(_hasher);
         var sources = sourceFiles

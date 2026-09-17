@@ -535,12 +535,13 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
         CompletionSummary = string.Empty;
     }
 
-    private void SetCompletion(ImportSummary summary, int verified)
+    private void SetCompletion(ImportSummary summary, int verified, bool fullSyncUnsupported)
     {
         LastImportBasePath = summary.BasePath;
+        var durability = fullSyncUnsupported ? "書き出し確定（fsync）" : "永続化";
         CompletionSummary = summary.Copied == 0 && summary.SkippedAlreadyBackedUp > 0
-            ? $"新規コピーなし・既存コピーを検証済み。{verified} 件について、保存先の実ファイルとSHA-256一致・永続化を確認しました。"
-            : $"{verified} 件の写真・動画について、保存先の実ファイルとSHA-256一致・永続化を確認しました。";
+            ? $"新規コピーなし・既存コピーを検証済み。{verified} 件について、保存先の実ファイルとSHA-256一致・{durability}を確認しました。"
+            : $"{verified} 件の写真・動画について、保存先の実ファイルとSHA-256一致・{durability}を確認しました。";
     }
 
     private void SetProgressState(string label, int current = 0, int total = 1, bool indeterminate = false)
@@ -567,6 +568,13 @@ public sealed partial class MainWindowViewModel : INotifyPropertyChanged, IDispo
                         indeterminate: false);
                     break;
                 }
+            case ImportProgressPhase.CheckingDestination:
+                SetProgressState(
+                    $"保存先ライブラリを照合中 {update.Current:N0}件…",
+                    0,
+                    1,
+                    indeterminate: true);
+                break;
             case ImportProgressPhase.Rescanning:
                 SetProgressState("SDカードを再スキャン中…", 0, Math.Max(1, update.Total), indeterminate: true);
                 break;

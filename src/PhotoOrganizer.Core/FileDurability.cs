@@ -3,7 +3,22 @@ using System.Runtime.InteropServices;
 
 namespace PhotoOrganizer.Core;
 
-public sealed record DurabilityResult(bool Success, string? Error = null);
+public enum DurabilityLevel
+{
+    /// <summary>The destination filesystem flushed the file to its permanent storage.</summary>
+    FullSync,
+
+    /// <summary>
+    /// The destination filesystem cannot flush to its physical media (network mounts such as
+    /// SMB or NFS). Every buffered byte was handed to the storage stack, but only with fsync.
+    /// </summary>
+    FlushOnly
+}
+
+public sealed record DurabilityResult(
+    bool Success,
+    string? Error = null,
+    DurabilityLevel Level = DurabilityLevel.FullSync);
 
 public enum FinalizeFileStatus
 {
@@ -31,6 +46,8 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
     private const int OpenReadOnly = 0;
     private const int InterruptedSystemCall = 4;
     private const int FileExistsError = 17;
+    private const int OperationNotSupported = 45;
+    private const int OperationNotSupportedOnSocket = 102;
     private const uint RenameExclusive = 0x00000004;
 
     public FinalizeFileResult FinalizeNewFile(string temporaryPath, string finalPath, DateTime lastWriteUtc)
@@ -95,9 +112,10 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
             if (OperatingSystem.IsMacOS())
             {
                 // macOS's managed no-replace move is not an atomic claim when
-                // concurrent renames target the same path. Stage all
-                // metadata and data durability privately, then use renamex_np's
-                // RENAME_EXCL so exactly one transaction can publish this name.
+                // concurrent renames target the same path. Stage all metadata and data
+                // durability privately, then use renamex_np's RENAME_EXCL so exactly one
+                // transaction can publish this name. Filesystems that do not implement
+                // RENAME_EXCL fall back to the managed move further down.
                 File.SetLastWriteTimeUtc(temporaryPath, lastWriteUtc);
                 var temporaryDurability = EnsureDurable(temporaryPath);
                 if (!temporaryDurability.Success)
@@ -117,10 +135,36 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
                         return new FinalizeFileResult(FinalizeFileStatus.DestinationExists, false);
                     }
 
-                    return new FinalizeFileResult(
-                        FinalizeFileStatus.Failed,
-                        false,
-                        $"macOS exclusive final move failed (errno {error}): {new Win32Exception(error).Message}");
+                    if (!IsOperationUnsupported(error))
+                    {
+                        return new FinalizeFileResult(
+                            FinalizeFileStatus.Failed,
+                            false,
+                            $"macOS exclusive final move failed (errno {error}): {new Win32Exception(error).Message}");
+                    }
+
+                    // Network mounts do not implement renamex_np(RENAME_EXCL) and offer no
+                    // hard links either, so no filesystem-level atomic claim exists there.
+                    // The managed no-replace move still refuses to clobber an existing file,
+                    // and the copy loop turns that refusal into a fresh collision resolution.
+                    // Only an import racing this exact name inside the check-then-rename
+                    // window loses the exclusive claim, which is the behaviour this app had
+                    // before the atomic claim was introduced.
+                    try
+                    {
+                        File.Move(temporaryPath, finalPath, overwrite: false);
+                    }
+                    catch (IOException) when (File.Exists(finalPath) || Directory.Exists(finalPath))
+                    {
+                        return new FinalizeFileResult(FinalizeFileStatus.DestinationExists, false);
+                    }
+                    catch (Exception ex)
+                    {
+                        return new FinalizeFileResult(
+                            FinalizeFileStatus.Failed,
+                            false,
+                            $"Managed no-replace final move failed: {ex.Message}");
+                    }
                 }
 
                 moved = true;
@@ -308,6 +352,16 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
                     continue;
                 }
 
+                if (IsOperationUnsupported(error))
+                {
+                    // Network mounts (SMB/NFS) answer ENOTSUP for F_FULLFSYNC because they
+                    // cannot flush a remote device's cache. fsync still hands every buffered
+                    // byte to the destination and asks it to flush, which is the strongest
+                    // commitment such a filesystem can make. Report that weaker level instead
+                    // of failing the copy or claiming a media flush that never happened.
+                    return FlushMacFile(descriptor);
+                }
+
                 return MacFailure("F_FULLFSYNC finalized file", error);
             }
 
@@ -317,6 +371,30 @@ public sealed partial class PlatformFileDurabilityService : IFileDurabilityServi
         {
             _ = CloseMac(descriptor);
         }
+    }
+
+    /// <summary>
+    /// macOS answers ENOTSUP (45) or EOPNOTSUPP (102) when the destination filesystem does
+    /// not implement a requested operation. HFS, FAT, UDF and APFS implement F_FULLFSYNC and
+    /// renamex_np(RENAME_EXCL); SMB and NFS mounts implement neither.
+    /// </summary>
+    public static bool IsOperationUnsupported(int error) =>
+        error is OperationNotSupported or OperationNotSupportedOnSocket;
+
+    private static DurabilityResult FlushMacFile(int descriptor)
+    {
+        while (FsyncMac(descriptor) != 0)
+        {
+            var error = Marshal.GetLastPInvokeError();
+            if (error == InterruptedSystemCall)
+            {
+                continue;
+            }
+
+            return MacFailure("fsync finalized file", error);
+        }
+
+        return new DurabilityResult(true, null, DurabilityLevel.FlushOnly);
     }
 
     private static DurabilityResult MacFailure(string operation, int error) =>

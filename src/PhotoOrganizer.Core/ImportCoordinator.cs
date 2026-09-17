@@ -29,6 +29,7 @@ public sealed class ImportCoordinator
         _verifier = new FormatSafetyVerifier(
             classifier,
             volumeProvider,
+            durability: durabilityService,
             maxDegreeOfParallelism: MaxConcurrentIoOperations);
         _destinationLibrary = new DestinationLibrary(
             volumeProvider,
@@ -185,8 +186,18 @@ public sealed class ImportCoordinator
                 }
             }
 
+            // A network destination library can take minutes to index. Report the scanned
+            // entry count so the import does not sit silently in its pre-copy phase.
+            IProgress<long>? indexProgress = progress is null
+                ? null
+                : new Progress<long>(entries => progress.Report(new ImportProgress(
+                    ImportProgressPhase.CheckingDestination,
+                    (int)Math.Min(entries, int.MaxValue),
+                    0,
+                    $"Destination library entries scanned: {entries}")));
+
             var lookup = await _destinationLibrary
-                .FindVerifiedBackupsAsync(initialFiles, destination, cancellationToken)
+                .FindVerifiedBackupsAsync(initialFiles, destination, cancellationToken, indexProgress)
                 .ConfigureAwait(false);
 
             if (lookup.Errors.Count > 0)
@@ -455,6 +466,13 @@ public sealed class ImportCoordinator
                 verification.Verified,
                 verification.Total,
                 "Destination copies verified and durably synchronized; camera card may be reused."));
+
+            if (verification.FullSyncUnsupported)
+            {
+                warnings.Add(
+                    "保存先が完全同期（F_FULLFSYNC）非対応のため、fsync までの書き出しで確定しました。"
+                    + "デバイスへの書き込み完了保証は保存先ストレージに依存します。");
+            }
 
             return new ImportRunResult(
                 ImportSafetyStatus.SafeToReuse,

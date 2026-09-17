@@ -4,7 +4,8 @@ public sealed record FormatVerificationResult(
     int Total,
     int Verified,
     IReadOnlyList<string> UnverifiedFiles,
-    IReadOnlyList<string> Errors)
+    IReadOnlyList<string> Errors,
+    bool FullSyncUnsupported = false)
 {
     public bool IsSafe => Total > 0 && Verified == Total && UnverifiedFiles.Count == 0 && Errors.Count == 0;
 }
@@ -113,12 +114,14 @@ public sealed class FormatSafetyVerifier
 
         var unverified = new List<string>();
         var verified = 0;
+        var fullSyncUnsupported = false;
         for (var sourceIndex = 0; sourceIndex < results.Length; sourceIndex++)
         {
             var result = results[sourceIndex];
             if (result.Matched)
             {
                 verified++;
+                fullSyncUnsupported |= result.FlushOnly;
             }
             else
             {
@@ -128,7 +131,7 @@ public sealed class FormatSafetyVerifier
             errors.AddRange(result.Errors);
         }
 
-        return new FormatVerificationResult(supported.Length, verified, unverified, errors);
+        return new FormatVerificationResult(supported.Length, verified, unverified, errors, fullSyncUnsupported);
     }
 
     private async Task<SourceVerificationResult> VerifySourceAsync(
@@ -168,6 +171,7 @@ public sealed class FormatSafetyVerifier
                 .Sha256Async(source, cancellationToken)
                 .ConfigureAwait(false);
             var matched = false;
+            var flushOnly = false;
 
             foreach (var candidate in candidates)
             {
@@ -244,6 +248,7 @@ public sealed class FormatSafetyVerifier
                         continue;
                     }
 
+                    flushOnly = durability.Level == DurabilityLevel.FlushOnly;
                     matched = true;
                     break;
                 }
@@ -253,7 +258,7 @@ public sealed class FormatSafetyVerifier
                 }
             }
 
-            return new SourceVerificationResult(matched, errors);
+            return new SourceVerificationResult(matched, errors, flushOnly);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -262,5 +267,5 @@ public sealed class FormatSafetyVerifier
         }
     }
 
-    private sealed record SourceVerificationResult(bool Matched, IReadOnlyList<string> Errors);
+    private sealed record SourceVerificationResult(bool Matched, IReadOnlyList<string> Errors, bool FlushOnly = false);
 }

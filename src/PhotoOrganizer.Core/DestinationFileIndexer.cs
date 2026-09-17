@@ -6,16 +6,21 @@ internal sealed record DestinationFileIndex(
 
 internal static class DestinationFileIndexer
 {
+    private const long ProgressReportInterval = 500;
+
     public static DestinationFileIndex Build(
         string destinationRoot,
         IStorageVolumeProvider? volumeProvider,
         bool requireExistingRoot,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<long>? progress = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         var filesBySize = new Dictionary<long, List<string>>();
         var errors = new List<string>();
+        long observedEntries = 0;
+        long reportedEntries = 0;
 
         if (string.IsNullOrWhiteSpace(destinationRoot))
         {
@@ -75,6 +80,15 @@ internal static class DestinationFileIndexer
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // Report coarse progress only: a network destination can hold hundreds of
+                // thousands of entries and every report crosses to the UI thread.
+                observedEntries++;
+                if (progress is not null && observedEntries - reportedEntries >= ProgressReportInterval)
+                {
+                    reportedEntries = observedEntries;
+                    progress.Report(observedEntries);
+                }
+
                 try
                 {
                     var attributes = entry.Attributes;
@@ -109,6 +123,8 @@ internal static class DestinationFileIndexer
                 }
             }
         }
+
+        progress?.Report(observedEntries);
 
         return new DestinationFileIndex(filesBySize, errors);
     }

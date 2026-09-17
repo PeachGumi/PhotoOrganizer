@@ -38,7 +38,7 @@ public sealed partial class MainWindowViewModel
             IsSafeToReuseCurrentCard = false;
             RaiseCommandState();
             SetNotVerified("コピー処理中です。最終検証が完了するまでSDカードを再利用しないでください。");
-            SetProgressState("コピー準備中…", indeterminate: true);
+            SetProgressState("保存先ライブラリを照合中…", indeterminate: true);
             AppendLog("取り込み開始。コピー完了だけではSDカード再利用可能とは判定しません。");
 
             await ValidateDestinationAsync().ConfigureAwait(true);
@@ -117,12 +117,17 @@ public sealed partial class MainWindowViewModel
             {
                 var verified = result.Verification?.Verified ?? 0;
                 SafetyHeadline = "保存先コピー検証済み — SDカード再利用可能";
-                SafetyDetail = $"対象メディア {verified} 件について、取り込み後のSD再スキャン、保存先実ファイルのサイズ・SHA-256一致、永続媒体への同期（durable commit）を確認済みです。これは指定保存先1か所へのコピー検証であり、二重バックアップ済みという意味ではありません。";
+                var durabilityCommit = result.Verification?.FullSyncUnsupported == true
+                    ? "保存先への書き出し確定（fsync。保存先が完全同期（F_FULLFSYNC）非対応のため、デバイスへの書き込み完了は保存先ストレージに依存します）"
+                    : "永続媒体への同期（durable commit）";
+                SafetyDetail = $"対象メディア {verified} 件について、取り込み後のSD再スキャン、保存先実ファイルのサイズ・SHA-256一致、{durabilityCommit}を確認済みです。これは指定保存先1か所へのコピー検証であり、二重バックアップ済みという意味ではありません。";
                 SafetyBrush = Brushes.ForestGreen;
                 IsSafeToReuseCurrentCard = true;
-                SetCompletion(result.Summary, verified);
+                SetCompletion(result.Summary, verified, result.Verification?.FullSyncUnsupported == true);
                 SetProgressState("取り込み・検証完了", verified, Math.Max(1, verified));
-                AppendLog($"最終確認完了: {verified} 件を実ファイルとSHA-256照合し、保存先への永続化を確認しました。SDカードを再利用できます。");
+                AppendLog(result.Verification?.FullSyncUnsupported == true
+                    ? $"最終確認完了: {verified} 件を実ファイルとSHA-256照合し、保存先への書き出し確定（fsync）を確認しました。SDカードを再利用できます。"
+                    : $"最終確認完了: {verified} 件を実ファイルとSHA-256照合し、保存先への永続化を確認しました。SDカードを再利用できます。");
             }
             else
             {

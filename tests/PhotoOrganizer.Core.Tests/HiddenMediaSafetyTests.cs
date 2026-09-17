@@ -37,6 +37,21 @@ public sealed class HiddenMediaSafetyTests
     }
 
     [TestMethod]
+    public void AppleDoubleSidecar_IsExcludedFromCompleteScan()
+    {
+        using var temp = new TempDirectory();
+        var sidecar = Path.Combine(temp.Path, "._DSC_0001.JPG");
+        File.WriteAllText(sidecar, "apple-double");
+        var photo = Path.Combine(temp.Path, "DSC_0001.JPG");
+        File.WriteAllText(photo, "camera-bytes");
+
+        var result = new MediaScanner(new MediaClassifier()).Scan(temp.Path);
+
+        Assert.IsTrue(result.IsComplete, string.Join(Environment.NewLine, result.Errors));
+        CollectionAssert.AreEqual(new[] { photo }, result.Files.ToArray());
+    }
+
+    [TestMethod]
     public void DotPrefixedDirectoryZeroByteSupportedMedia_BlocksCompleteScan()
     {
         using var temp = new TempDirectory();

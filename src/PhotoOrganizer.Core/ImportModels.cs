@@ -12,6 +12,13 @@ public enum ImportSafetyStatus
 public enum ImportProgressPhase
 {
     Scanning,
+
+    /// <summary>
+    /// The destination library is being indexed before copying. This phase has no per-file
+    /// progress of its own, so it reports how many entries it has scanned so far.
+    /// </summary>
+    CheckingDestination,
+
     Copying,
     Rescanning,
     Verifying
