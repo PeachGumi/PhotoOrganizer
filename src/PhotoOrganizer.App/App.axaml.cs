@@ -149,7 +149,13 @@ public sealed partial class App : Application
 
     private void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
     {
-        if (_explicitQuitRequested || _viewModel?.IsBusy != true) return;
+        if (_explicitQuitRequested) return;
+
+        if (_viewModel?.IsBusy != true)
+        {
+            _mainWindow?.AllowExplicitClose();
+            return;
+        }
 
         // A normal quit/logout request must never interrupt an active scan/import and
         // then leave the user with a stale reuse approval. Forced process termination
